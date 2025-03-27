@@ -1,0 +1,1305 @@
+openapi: 3.0.0
+info:
+  title: Del-Pick API
+  description: API untuk Del-Pick
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000/api
+    description: Development Server
+
+paths:
+  # Authentication
+  /auth/register:
+    post:
+      summary: Register User
+      description: Mendaftarkan user baru
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "201":
+          description: User berhasil dibuat
+        "400":
+          description: Data tidak valid
+
+  /auth/login:
+    post:
+      summary: Login User
+      description: Login menggunakan email dan password
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Login berhasil
+        "401":
+          description: Email atau password salah
+
+  /auth/logout:
+    post:
+      summary: Logout User
+      description: Logout dari sistem (hapus token di frontend)
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Logout berhasil
+
+  /auth/forgot-password:
+    post:
+      summary: Lupa Password
+      description: Mengirim email reset password
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+      responses:
+        "200":
+          description: Email reset password dikirim
+        "404":
+          description: User tidak ditemukan
+
+  /auth/reset-password:
+    post:
+      summary: Reset Password
+      description: Reset password dengan token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        "200":
+          description: Password berhasil direset
+        "400":
+          description: Token tidak valid atau kadaluarsa
+
+  /auth/update-profile:
+    put:
+      summary: Update Profil
+      description: Memperbarui profil user termasuk avatar
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                password:
+                  type: string
+                avatar:
+                  type: string
+                  description: Base64 string dari gambar
+      responses:
+        "200":
+          description: Profil berhasil diperbarui
+        "400":
+          description: Data tidak valid
+
+  # Stores
+  /stores:
+    get:
+      summary: Mendapatkan semua store beserta ownernya
+      tags:
+        - Stores
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+          description: Halaman yang ingin diambil
+        - in: query
+          name: limit
+          schema:
+            type: integer
+          description: Jumlah item per halaman
+      responses:
+        "200":
+          description: Berhasil mendapatkan data store
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalItems:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  currentPage:
+                    type: integer
+                  stores:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Store'
+
+    post:
+      summary: Membuat store baru beserta ownernya
+      tags:
+        - Stores
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStoreRequest'
+      responses:
+        "201":
+          description: Store dan owner berhasil ditambahkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner:
+                    $ref: '#/components/schemas/User'
+                  store:
+                    $ref: '#/components/schemas/Store'
+
+  /stores/{id}:
+    get:
+      summary: Mendapatkan store berdasarkan ID beserta ownernya
+      tags:
+        - Stores
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID store yang ingin diambil
+      responses:
+        "200":
+          description: Berhasil mendapatkan data store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        "404":
+          description: Store tidak ditemukan
+
+    put:
+      summary: Mengupdate store berdasarkan ID
+      tags:
+        - Stores
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID store yang ingin diperbarui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStoreRequest'
+      responses:
+        "200":
+          description: Store berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        "404":
+          description: Store tidak ditemukan
+
+    delete:
+      summary: Menghapus store berdasarkan ID
+      tags:
+        - Stores
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID store yang ingin dihapus
+      responses:
+        "200":
+          description: Store dan owner berhasil dihapus
+        "404":
+          description: Store tidak ditemukan
+
+  /stores/me:
+    put:
+      summary: Mengupdate store oleh owner yang sedang login
+      tags:
+        - Stores
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStoreRequest'
+      responses:
+        "200":
+          description: Store berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        "404":
+          description: Store tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengupdate store
+
+  # Drivers
+  /drivers:
+    get:
+      summary: Mendapatkan semua driver
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+          description: Halaman yang ingin diambil
+        - in: query
+          name: limit
+          schema:
+            type: integer
+          description: Jumlah item per halaman
+      responses:
+        "200":
+          description: Berhasil mendapatkan data driver
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalItems:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  currentPage:
+                    type: integer
+                  drivers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Driver'
+        "500":
+          description: Terjadi kesalahan saat mengambil data driver
+
+    post:
+      summary: Membuat driver baru
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDriverRequest'
+      responses:
+        "201":
+          description: Driver berhasil ditambahkan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "400":
+          description: Data tidak valid
+        "500":
+          description: Terjadi kesalahan saat menambahkan driver
+
+  /drivers/{id}:
+    get:
+      summary: Mendapatkan driver berdasarkan ID
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID driver yang ingin diambil
+      responses:
+        "200":
+          description: Berhasil mendapatkan data driver
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "404":
+          description: Driver tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengambil data driver
+
+    put:
+      summary: Mengupdate driver berdasarkan ID
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID driver yang ingin diperbarui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverRequest'
+      responses:
+        "200":
+          description: Driver berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "404":
+          description: Driver tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengupdate driver
+
+    delete:
+      summary: Menghapus driver berdasarkan ID
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID driver yang ingin dihapus
+      responses:
+        "200":
+          description: Driver berhasil dihapus
+        "404":
+          description: Driver tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat menghapus driver
+
+  /drivers/location:
+    put:
+      summary: Mengupdate lokasi driver secara realtime
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                longitude:
+                  type: number
+      responses:
+        "200":
+          description: Lokasi driver berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  latitude:
+                    type: number
+                  longitude:
+                    type: number
+        "500":
+          description: Terjadi kesalahan saat memperbarui lokasi driver
+
+  /drivers/me:
+    put:
+      summary: Mengupdate data driver oleh driver yang sedang login
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverRequest'
+      responses:
+        "200":
+          description: Data driver berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "404":
+          description: Driver tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengupdate data driver
+
+  /drivers/status:
+    put:
+      summary: Mengupdate status driver (active/inactive)
+      tags:
+        - Drivers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [active, inactive]
+      responses:
+        "200":
+          description: Status driver berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Driver'
+        "400":
+          description: Status tidak valid
+        "500":
+          description: Terjadi kesalahan saat memperbarui status driver
+  
+  # Customers
+  /customers:
+    get:
+      summary: Mendapatkan semua customer
+      tags:
+        - Customers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+          description: Halaman yang ingin diambil
+        - in: query
+          name: limit
+          schema:
+            type: integer
+          description: Jumlah item per halaman
+      responses:
+        "200":
+          description: Berhasil mendapatkan data customer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalItems:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  currentPage:
+                    type: integer
+                  customers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+        "500":
+          description: Terjadi kesalahan saat mengambil data customer
+
+    post:
+      summary: Membuat customer baru
+      tags:
+        - Customers
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        "201":
+          description: Customer berhasil ditambahkan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  customer:
+                    $ref: '#/components/schemas/Customer'
+        "400":
+          description: Data tidak valid
+        "500":
+          description: Terjadi kesalahan saat menambahkan customer
+
+  /customers/{id}:
+    get:
+      summary: Mendapatkan customer berdasarkan ID
+      tags:
+        - Customers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID customer yang ingin diambil
+      responses:
+        "200":
+          description: Berhasil mendapatkan data customer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        "404":
+          description: Customer tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengambil data customer
+
+    put:
+      summary: Mengupdate customer berdasarkan ID
+      tags:
+        - Customers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID customer yang ingin diperbarui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCustomerRequest'
+      responses:
+        "200":
+          description: Customer berhasil diperbarui
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        "404":
+          description: Customer tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengupdate customer
+
+    delete:
+      summary: Menghapus customer berdasarkan ID
+      tags:
+        - Customers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+          description: ID customer yang ingin dihapus
+      responses:
+        "200":
+          description: Customer dan user berhasil dihapus
+        "404":
+          description: Customer tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat menghapus customer
+
+
+  # Orders
+  /orders/user:
+    get:
+      summary: Mendapatkan semua order berdasarkan user yang sedang login (customer)
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Berhasil mendapatkan data order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        "500":
+          description: Terjadi kesalahan saat mengambil data order
+
+  /orders/store:
+    get:
+      summary: Mendapatkan semua order berdasarkan store yang dimiliki oleh owner yang sedang login
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Berhasil mendapatkan data order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Order'
+        "404":
+          description: Toko tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengambil data order
+
+  /orders:
+    post:
+      summary: Membuat order baru
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        "201":
+          description: Order berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        "400":
+          description: Data tidak valid
+        "500":
+          description: Terjadi kesalahan saat membuat order
+
+  /orders/{orderId}/approve:
+    put:
+      summary: Meng-approve order oleh toko
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+          description: ID order yang ingin di-approve
+      responses:
+        "200":
+          description: Order berhasil di-approve
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        "404":
+          description: Order tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat meng-approve order
+
+  /orders/{id}:
+    get:
+      summary: Mendapatkan detail order berdasarkan ID
+      tags:
+        - Orders
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: ID order yang ingin diambil detailnya
+      responses:
+        "200":
+          description: Berhasil mendapatkan detail order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDetail'
+        "404":
+          description: Order tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengambil detail order
+
+  /orders/review:
+    post:
+      summary: Membuat review untuk store atau driver
+      tags:
+        - Reviews
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReviewRequest'
+      responses:
+        "201":
+          description: Review berhasil dibuat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Review'
+        "400":
+          description: Order belum selesai atau review sudah ada
+        "500":
+          description: Terjadi kesalahan saat membuat review
+
+  # Tracking
+  /tracking/driver-requests/{orderId}/accept:
+    put:
+      summary: Driver menyetujui permintaan pengantaran
+      tags:
+        - Tracking
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+          description: ID order yang ingin di-approve oleh driver
+      responses:
+        "200":
+          description: Permintaan pengantaran berhasil disetujui. Tracking telah dibuat.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        "404":
+          description: Permintaan pengantaran tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat menyetujui permintaan pengantaran
+
+  /tracking/{orderId}:
+    get:
+      summary: Mendapatkan data tracking secara realtime
+      tags:
+        - Tracking
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: string
+          description: ID order yang ingin di-track
+      responses:
+        "200":
+          description: Berhasil mendapatkan data tracking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        "404":
+          description: Data tracking tidak ditemukan
+        "500":
+          description: Terjadi kesalahan saat mengambil data tracking
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    # Store
+    Store:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+        openTime:
+          type: string
+        closeTime:
+          type: string
+        imageUrl:
+          type: string
+        phone:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        distance:
+          type: number
+        user:
+          $ref: '#/components/schemas/User'
+
+    # User
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [admin, customer, driver, owner]
+        avatar:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # Driver
+    Driver:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        vehicle_number:
+          type: string
+        rating:
+          type: number
+        reviewsCount:
+          type: integer
+        latitude:
+          type: number
+        longitude:
+          type: number
+        status:
+          type: string
+          enum: [active, inactive]
+        user:
+          $ref: '#/components/schemas/User'
+
+    # Customer
+    Customer:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        user:
+          $ref: '#/components/schemas/User'
+
+    # Order
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        deliveryAddress:
+          type: string
+        subtotal:
+          type: number
+        serviceCharge:
+          type: number
+        total:
+          type: number
+        order_status:
+          type: string
+          enum: [pending, approved, preparing, on_delivery, delivered]
+        delivery_status:
+          type: string
+          enum: [waiting, picking_up, on_delivery, delivered]
+        orderDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        customerId:
+          type: integer
+        driverId:
+          type: integer
+        storeId:
+          type: integer
+        estimatedDeliveryTime:
+          type: number
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        store:
+          $ref: '#/components/schemas/Store'
+        customer:
+          $ref: '#/components/schemas/User'
+        driver:
+          $ref: '#/components/schemas/User'
+
+    # Order Item
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+        quantity:
+          type: integer
+        imageUrl:
+          type: string
+        status:
+          type: string
+
+    # Review
+    Review:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: string
+        userId:
+          type: integer
+        storeId:
+          type: integer
+        driverId:
+          type: integer
+        rating:
+          type: integer
+        comment:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # Request Schemas
+    CreateStoreRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        phone:
+          type: string
+        storeName:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+        openTime:
+          type: string
+        closeTime:
+          type: string
+        image:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    UpdateStoreRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        password:
+          type: string
+        storeName:
+          type: string
+        address:
+          type: string
+        description:
+          type: string
+        openTime:
+          type: string
+        closeTime:
+          type: string
+        image:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    CreateDriverRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        phone:
+          type: string
+        vehicle_number:
+          type: string
+
+    UpdateDriverRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        vehicle_number:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        status:
+          type: string
+          enum: [active, inactive]
+
+    CreateCustomerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        phone:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    UpdateCustomerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    CreateOrderRequest:
+      type: object
+      properties:
+        deliveryAddress:
+          type: string
+        subtotal:
+          type: number
+        serviceCharge:
+          type: number
+        total:
+          type: number
+        orderDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        storeId:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateOrderItemRequest'
+
+    CreateOrderItemRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        price:
+          type: number
+        quantity:
+          type: integer
+        imageUrl:
+          type: string
+        status:
+          type: string
+
+    CreateReviewRequest:
+      type: object
+      properties:
+        orderId:
+          type: string
+        storeId:
+          type: integer
+        driverId:
+          type: integer
+        rating:
+          type: integer
+        comment:
+          type: string
+          
+    # Order Detail
+    OrderDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        deliveryAddress:
+          type: string
+        subtotal:
+          type: number
+        serviceCharge:
+          type: number
+        total:
+          type: number
+        order_status:
+          type: string
+          enum: [pending, approved, preparing, on_delivery, delivered]
+        delivery_status:
+          type: string
+          enum: [waiting, picking_up, on_delivery, delivered]
+        orderDate:
+          type: string
+          format: date-time
+        notes:
+          type: string
+        customerId:
+          type: integer
+        driverId:
+          type: integer
+        storeId:
+          type: integer
+        estimatedDeliveryTime:
+          type: number
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+        store:
+          $ref: '#/components/schemas/Store'
+        customer:
+          $ref: '#/components/schemas/User'
+        driver:
+          $ref: '#/components/schemas/User'
+        reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
