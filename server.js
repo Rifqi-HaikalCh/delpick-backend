@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const { initSocketIO } = require('./utils/socketUtils'); // Impor fungsi inisialisasi Socket.IO
 
 // Get the port from environment variables
-const PORT = Number(process.env.APP_PORT) || 5000;
+const PORT = Number(process.env.APP_PORT);
 
 // Create HTTP server
 const server = http.createServer(app);
