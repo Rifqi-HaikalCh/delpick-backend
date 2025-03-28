@@ -1,23 +1,23 @@
 {
     "development": {
-        "username": "root",
-        "password": "password",
+        "username": "ta_delpick",
+        "password": "ta_delpick@2025",
         "database": "delpick",
-        "host": "127.0.0.1",
+        "host": "delcom.org",
         "dialect": "mysql"
     },
     "test": {
-        "username": "root",
-        "password": "password",
+        "username": "ta_delpick",
+        "password": "ta_delpick@2025",
         "database": "delpick_test",
-        "host": "127.0.0.1",
+        "host": "delcom.org",
         "dialect": "mysql"
     },
     "production": {
-        "username": "root",
-        "password": "password",
+        "username": "ta_delpick",
+        "password": "ta_delpick@2025",
         "database": "delpick_prod",
-        "host": "127.0.0.1",
+        "host": "delcom.org",
         "dialect": "mysql"
     }
 }
