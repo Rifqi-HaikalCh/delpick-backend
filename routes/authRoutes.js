@@ -7,7 +7,12 @@ const {
     updateProfile,
     logout
 } = require('../controllers/authController');
-const { verifyToken } = require('../middlewares/authMiddleware');
+
+const { 
+    verifyToken,
+    validateInput
+ } = require('../middlewares/authMiddleware');
+
 const {
     loginValidator,
     registerValidator,
@@ -16,11 +21,12 @@ const {
     updateProfileValidator,
     validate
 } = require('../validators/authValidator');
+const { validateInput } = require('../middlewares/requestMiddleware');
 
 const router = express.Router();
 
 router.post('/login', loginValidator, validate, login);
-router.post('/register', registerValidator, validate, register);
+router.post('/register', registerValidator, validate, register, validateInput);
 router.post('/forgot-password', forgotPasswordValidator, validate, forgotPassword);
 router.post('/reset-password', resetPasswordValidator, validate, resetPassword);
 router.put('/update-profile', verifyToken, updateProfileValidator, validate, updateProfile);

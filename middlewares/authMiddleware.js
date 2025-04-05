@@ -8,35 +8,61 @@ dotenv.config();
 /**
  * Middleware untuk memverifikasi token JWT
  */
-const verifyToken = (req, res, next) => {
-    // Ambil token dari header 'Authorization'
-    const token = req.headers['authorization'];
-
-    // Cek jika token tidak ada
-    if (!token) {
+const verifyToken = (role = null) => {
+    return (req, res, next) => {
+      const token = req.headers['authorization'];
+      if (!token) {
         return response(res, { statusCode: 401, message: 'Token tidak ditemukan' });
-    }
-
-    // Token Bearer biasanya dikirim dengan format: 'Bearer <token>'
-    // Pisahkan "Bearer" dan token yang sesungguhnya
-    const tokenWithoutBearer = token.split(' ')[1];  // Mengambil bagian token setelah "Bearer"
-
-    // Jika token tidak ada setelah "Bearer", return error
-    if (!tokenWithoutBearer) {
-        return response(res, { statusCode: 401, message: 'Token tidak valid' });
-    }
-
-    try {
-        // Verifikasi token menggunakan JWT_SECRET
-        const decoded = jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET);
-        req.user = decoded;  // Menyimpan data user ke request untuk digunakan di route selanjutnya
+      }
+  
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  
+        // Cek apakah role yang dimiliki sesuai dengan yang dibutuhkan
+        if (role && decoded.role !== role) {
+          return response(res, { statusCode: 403, message: 'Access denied: Insufficient permissions' });
+        }
+  
+        req.user = decoded;
         next();
-    } catch (error) {
-        // Jika token tidak valid
+      } catch (error) {
         logger.error(error);
         return response(res, { statusCode: 401, message: 'Token tidak valid' });
-    }
-};
+      }
+    };
+  };
+
+// const verifyToken = (req, res, next) => {// version 2
+//     // Ambil token dari header 'Authorization'
+//     const token = req.headers['authorization'];
+
+//     // Cek jika token tidak ada
+//     if (!token) {
+//         return response(res, { statusCode: 401, message: 'Token tidak ditemukan' });
+//     }
+
+//     // Token Bearer biasanya dikirim dengan format: 'Bearer <token>'
+//     // Pisahkan "Bearer" dan token yang sesungguhnya
+//     const tokenWithoutBearer = token.split(' ')[1];  // Mengambil bagian token setelah "Bearer"
+
+//     // Jika token tidak ada setelah "Bearer", return error
+//     if (!tokenWithoutBearer) {
+//         return response(res, { statusCode: 401, message: 'Token tidak valid' });
+//     }
+
+//     try {
+//         // Verifikasi token menggunakan JWT_SECRET
+//         const decoded = jwt.verify(tokenWithoutBearer, process.env.JWT_SECRET);
+//         req.user = decoded;  // Menyimpan data user ke request untuk digunakan di route selanjutnya
+//         next();
+//     } catch (error) {
+//         // Jika token tidak valid
+//         logger.error(error);
+//         return response(res, { statusCode: 401, message: 'Token tidak valid' });
+//     }
+// };
+
+//verison 1
 // const verifyToken = (req, res, next) => {
 //     const token = req.headers['authorization'];
 //     if (!token) {

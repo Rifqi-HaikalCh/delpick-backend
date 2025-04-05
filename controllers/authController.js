@@ -50,7 +50,7 @@ const register = async (req, res) => {
     try {
         const { name, email, phone, password, role } = req.body;
         // const { name, email, phone, password } = req.body;
-        const validRole = ['customer', 'owner', 'driver', 'admin'];
+        const validRole = ['customer', 'store', 'driver', 'admin'];
         if (!validRole.includes(role)) {
             return response(res, { statusCode: 400, message: 'Role tidak valid' });
         }
