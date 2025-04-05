@@ -16,6 +16,20 @@ const generateToken = (user) => {
         { expiresIn: '7d' }
     );
 };
+const generateTokenV2 = (user) => {
+    const payload = {
+        id: user.id,
+        role: user.role,
+        iat: Math.floor(Date.now() / 1000),  // Waktu saat token dibuat
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)  // Token kedaluwarsa dalam 24 jam
+    };
+    return jwt.sign(
+        payload,
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+    );
+};
+
 
 /**
  * Objek untuk menyimpan token reset password
@@ -35,7 +49,16 @@ const login = async (req, res) => {
             return response(res, { statusCode: 401, message: 'Email atau password salah' });
         }
         const token = generateToken(user);
-        return response(res, { statusCode: 200, message: 'Login berhasil', data: { token, user } });
+        // return response(res, { 
+        //     statusCode: 200, 
+        //     message: 'Login berhasil', 
+        //     token: token,
+        //     data: {  user } });
+        return response(res, { 
+            statusCode: 200, 
+            message: 'Login berhasil', 
+            // token: token,
+            data: {  token, user } });
     } catch (error) {
         return response(res, { statusCode: 500, message: 'Terjadi kesalahan saat login', errors: error.message });
     }
