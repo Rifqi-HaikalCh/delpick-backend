@@ -68,6 +68,11 @@ const getRealtimeTracking = async (req, res) => {
             return response(res, { statusCode: 404, message: 'Order tidak ditemukan' });
         }
 
+        // Periksa apakah lokasi driver tersedia
+        if (!order.driver || !order.driver.latitude || !order.driver.longitude) {
+            return response(res, { statusCode: 404, message: 'Driver location not available' });
+        }
+
         // Kirim data tracking ke customer melalui Socket.IO
         const driverSockets = getDriverSockets();
         if (driverSockets[customerId]) {

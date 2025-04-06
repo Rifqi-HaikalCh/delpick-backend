@@ -15,6 +15,7 @@ const registerValidator = [
     body('name').notEmpty().withMessage('Nama harus diisi'),
     body('email').isEmail().withMessage('Email tidak valid'),
     body('phone').notEmpty().withMessage('Nomor telepon harus diisi'),
+    body('password').notEmpty().withMessage('Password harus diisi'),
     body('password').isLength({ min: 6 }).withMessage('Password minimal 6 karakter'),
 ];
 
