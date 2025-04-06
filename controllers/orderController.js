@@ -59,9 +59,9 @@ const getOrdersByUser = async (req, res) => {
         const orders = await Order.findAll({
             where: { customerId },
             include: [
-                { model: OrderItem, as: 'items' },
-                { model: Store, as: 'store' },
-                { model: User, as: 'driver' },
+                { model: OrderItem, as: 'items' },  // Relasi ke OrderItem
+                { model: Store, as: 'store' }, // Relasi ke Store
+                { model: User, as: 'driver' }, // Relasi ke Driver
             ],
         });
 
@@ -87,6 +87,8 @@ const getOrdersByUser = async (req, res) => {
 const getOrdersByStore = async (req, res) => {
     try {
         const { id: ownerId } = req.user; // Ambil ID owner yang sedang login.
+
+         // Cari store yang dimiliki oleh owner
         const store = await Store.findOne({ where: { ownerId } });
         if (!store) {
             return response(res, {
@@ -96,11 +98,11 @@ const getOrdersByStore = async (req, res) => {
         }
 
         const orders = await Order.findAll({
-            where: { storeId: store.id },
+            where: { storeId: store.id },  // Filter berdasarkan storeId
             include: [
-                { model: OrderItem, as: 'items' },
-                { model: User, as: 'customer' },
-                { model: User, as: 'driver' },
+                { model: OrderItem, as: 'items' }, // Relasi ke OrderItem
+                { model: User, as: 'customer' }, // Relasi ke Customer
+                { model: User, as: 'driver' }, // Relasi ke Driver
             ],
         });
 
@@ -147,7 +149,7 @@ const placeOrder = async (req, res) => {
             subtotal,
             serviceCharge,
             total,
-            order_status: 'mencari driver',
+            order_status: 'mencari driver', //Status Awal
             orderDate,
             notes,
             customerId,
@@ -159,7 +161,7 @@ const placeOrder = async (req, res) => {
         if (items && items.length > 0) {
             const orderItems = items.map((item) => ({
                 ...item,
-                orderId: order.id,
+                orderId: order.id,  // Hubungkan item dengan order yang baru dibuat
             }));
             await OrderItem.bulkCreate(orderItems);
         }
@@ -167,7 +169,7 @@ const placeOrder = async (req, res) => {
          // Panggil fungsi updateOrderStatus untuk memperbarui status jika diperlukan
          await updateOrderStatus({
             body: { orderId: order.id, status: 'mencari driver' }, // Status pertama
-            user: { role: 'admin' }, // Admin atau role yang berwenang
+            user: { role: role }, // Admin atau role yang berwenang
         }, res);
 
         return response(res, {
@@ -314,7 +316,7 @@ const updateOrderStatus = async (req, res) => {
       const { role } = req.user;  // Role dari pengguna yang terautentikasi (admin, driver, atau store)
   
       // Validasi status order
-      const validStatuses = ['menunggu driver', 'diambil', 'diantar', 'selesai'];
+      const validStatuses = ['mencari driver', 'diambil', 'diantar', 'selesai'];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({ message: 'Status tidak valid' });
       }
