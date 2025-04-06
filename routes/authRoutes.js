@@ -21,7 +21,7 @@ const {
     updateProfileValidator,
     validate
 } = require('../validators/authValidator');
-const { validateInput } = require('../middlewares/requestMiddleware');
+
 
 const router = express.Router();
 
