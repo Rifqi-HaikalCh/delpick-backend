@@ -169,7 +169,7 @@ const placeOrder = async (req, res) => {
          // Panggil fungsi updateOrderStatus untuk memperbarui status jika diperlukan
          await updateOrderStatus({
             body: { orderId: order.id, status: 'mencari driver' }, // Status pertama
-            user: { role: role }, // Admin atau role yang berwenang
+            user: req.user, // Admin atau role yang berwenang
         }, res);
 
         return response(res, {
@@ -374,92 +374,92 @@ const updateOrderStatus = async (req, res) => {
     }
   };
 
-//Membuat pesanan
-const createOrder = async (req, res) => {
-    try {
-      const { customerId, storeId, products } = req.body;
+// //Membuat pesanan
+// const createOrder = async (req, res) => {
+//     try {
+//       const { customerId, storeId, products } = req.body;
   
-      // Membuat pesanan baru dengan status "mencari driver"
-      const order = await Order.create({
-        customerId,
-        storeId,
-        status: 'mencari driver',  // Status awal "mencari driver"
-      });
+//       // Membuat pesanan baru dengan status "mencari driver"
+//       const order = await Order.create({
+//         customerId,
+//         storeId,
+//         status: 'mencari driver',  // Status awal "mencari driver"
+//       });
   
-      // Setelah pesanan dibuat, proses pencarian driver terdekat (algoritma Euclidean)
-      // Misalnya menggunakan fungsi 'findNearestDriver' yang sudah ada
-      const driver = await findNearestDriver(order.store.latitude, order.store.longitude);
+//       // Setelah pesanan dibuat, proses pencarian driver terdekat (algoritma Euclidean)
+//       // Misalnya menggunakan fungsi 'findNearestDriver' yang sudah ada
+//       const driver = await findNearestDriver(order.store.latitude, order.store.longitude);
   
-      // Jika driver ditemukan, perbarui status menjadi "diambil" (misalnya)
-      if (driver) {
-        order.status = 'diambil';  // Status berubah ke "diambil" setelah driver ditemukan
-        order.driverId = driver.id;
-        await order.save();
-      }
+//       // Jika driver ditemukan, perbarui status menjadi "diambil" (misalnya)
+//       if (driver) {
+//         order.status = 'diambil';  // Status berubah ke "diambil" setelah driver ditemukan
+//         order.driverId = driver.id;
+//         await order.save();
+//       }
   
-      return res.status(200).json({ message: 'Order created and driver found', order });
-    } catch (error) {
-      return res.status(500).json({ message: 'Error creating order', error: error.message });
-    }
-  };
+//       return res.status(200).json({ message: 'Order created and driver found', order });
+//     } catch (error) {
+//       return res.status(500).json({ message: 'Error creating order', error: error.message });
+//     }
+//   };
   
   
-const updateOrderStatus2 = async (req, res) => {
-    try {
-      const { orderId, status } = req.body;
+// const updateOrderStatus2 = async (req, res) => {
+//     try {
+//       const { orderId, status } = req.body;
   
-      // Validasi status order
-      const validStatuses = ['menunggu driver', 'diambil', 'diantar', 'selesai'];
-      if (!validStatuses.includes(status)) {
-        return res.status(400).json({ message: 'Status tidak valid' });
-      }
+//       // Validasi status order
+//       const validStatuses = ['menunggu driver', 'diambil', 'diantar', 'selesai'];
+//       if (!validStatuses.includes(status)) {
+//         return res.status(400).json({ message: 'Status tidak valid' });
+//       }
   
-      const order = await Order.findByPk(orderId, {
-        include: [
-          { model: User, as: 'customer' },  // Dapatkan data customer
-          { model: Driver, as: 'driver' },  // Dapatkan data driver
-          { model: Store, as: 'store' }     // Dapatkan data store
-        ]
-      });
+//       const order = await Order.findByPk(orderId, {
+//         include: [
+//           { model: User, as: 'customer' },  // Dapatkan data customer
+//           { model: Driver, as: 'driver' },  // Dapatkan data driver
+//           { model: Store, as: 'store' }     // Dapatkan data store
+//         ]
+//       });
   
-      if (!order) {
-        return res.status(404).json({ message: 'Order not found' });
-      }
+//       if (!order) {
+//         return res.status(404).json({ message: 'Order not found' });
+//       }
   
-      // Menjaga agar status order tidak bisa diubah jika sudah selesai
-      if (order.status === 'selesai') {
-        return res.status(400).json({ message: 'Status sudah selesai, tidak bisa diubah lagi' });
-      }
+//       // Menjaga agar status order tidak bisa diubah jika sudah selesai
+//       if (order.status === 'selesai') {
+//         return res.status(400).json({ message: 'Status sudah selesai, tidak bisa diubah lagi' });
+//       }
   
-      // Update status order
-      order.status = status;
-      await order.save();
+//       // Update status order
+//       order.status = status;
+//       await order.save();
   
-      // Log aktivitas perubahan status
-      console.log(`Order ID: ${orderId} - Status updated to: ${status}`);
+//       // Log aktivitas perubahan status
+//       console.log(`Order ID: ${orderId} - Status updated to: ${status}`);
   
-      // Kirim pemberitahuan ke customer dan driver
-      if (order.customer) {
-        // Implementasikan pemberitahuan ke customer, misalnya melalui email atau push notification
-        console.log(`Notification sent to customer: ${order.customer.name}`);
-      }
-      if (order.driver) {
-        // Implementasikan pemberitahuan ke driver, misalnya melalui email atau push notification
-        console.log(`Notification sent to driver: ${order.driver.name}`);
-      }
+//       // Kirim pemberitahuan ke customer dan driver
+//       if (order.customer) {
+//         // Implementasikan pemberitahuan ke customer, misalnya melalui email atau push notification
+//         console.log(`Notification sent to customer: ${order.customer.name}`);
+//       }
+//       if (order.driver) {
+//         // Implementasikan pemberitahuan ke driver, misalnya melalui email atau push notification
+//         console.log(`Notification sent to driver: ${order.driver.name}`);
+//       }
   
-      // Jika status adalah "selesai", kirim notifikasi ke store
-      if (status === 'selesai' && order.store) {
-        console.log(`Store ${order.store.name} notified about order completion`);
-      }
+//       // Jika status adalah "selesai", kirim notifikasi ke store
+//       if (status === 'selesai' && order.store) {
+//         console.log(`Store ${order.store.name} notified about order completion`);
+//       }
   
-      return res.status(200).json({ message: 'Order status updated successfully', order });
+//       return res.status(200).json({ message: 'Order status updated successfully', order });
   
-    } catch (error) {
-      console.error('Error updating order status:', error);
-      return res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-  }; //versi 2
+//     } catch (error) {
+//       console.error('Error updating order status:', error);
+//       return res.status(500).json({ message: 'Internal Server Error', error: error.message });
+//     }
+//   }; //versi 2
   
  
 

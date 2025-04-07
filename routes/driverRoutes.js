@@ -29,6 +29,6 @@ router.delete('/:id', verifyToken, isAdmin, deleteDriverValidator, validate, del
 // Driver routes
 router.put('/location', verifyToken, isDriver, updateDriverLocation); // Hanya driver
 router.put('/status', verifyToken, isDriver, updateDriverStatus); // Hanya driver
-// router.put('/me', verifyToken, isDriver, updateDriverByDriver);
+router.put('/updateProfileDriver', verifyToken, isDriver, updateDriverByDriver);
 
 module.exports = router;
