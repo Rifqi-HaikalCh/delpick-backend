@@ -10,7 +10,7 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // Relasi dengan User
-      Store.belongsTo(models.User, { foreignKey: 'userId' });
+      Store.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
 
       // Relasi dengan MenuItems
       Store.hasMany(models.MenuItem, { foreignKey: 'storeId' });
@@ -34,6 +34,7 @@ module.exports = (sequelize, DataTypes) => {
   }, {
     sequelize,
     modelName: 'Store',
+    timestamps : true,
   });
   return Store;
 };
