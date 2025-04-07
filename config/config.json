@@ -2,21 +2,21 @@
     "development": {
         "username": "ta_delpick",
         "password": "ta_delpick@2025",
-        "database": "delpick",
+        "database": "ta_delpick",
         "host": "delcom.org",
         "dialect": "mysql"
     },
     "test": {
         "username": "ta_delpick",
         "password": "ta_delpick@2025",
-        "database": "delpick_test",
+        "database": "ta_delpick",
         "host": "delcom.org",
         "dialect": "mysql"
     },
     "production": {
         "username": "ta_delpick",
         "password": "ta_delpick@2025",
-        "database": "delpick_prod",
+        "database": "ta_delpick",
         "host": "delcom.org",
         "dialect": "mysql"
     }
