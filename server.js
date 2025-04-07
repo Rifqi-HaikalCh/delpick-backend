@@ -16,8 +16,9 @@ initSocketIO(server);
 
 // Start the server
 server.listen(PORT, () => {
-    logger.info(`Server running on https://delpick.fun/${PORT}`);
-    logger.info(`Documentation available at https://delpick.fun/${PORT}/api-docs`);
+    logger.info(`Server running on https://delpick.fun/`);
+    logger.info(`Documentation available at https://delpick.fun/api-docs`);
+    // logger.info(`Documentation available at https://delpick.fun/${PORT}/api-docs`);
 }).on('error', (err) => {
     logger.error(`Failed to start server: ${err.message}`);
 });
