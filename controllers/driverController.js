@@ -9,17 +9,17 @@ const bcrypt = require('bcryptjs');
  */
 const getAllDrivers = async (req, res) => {
     try {
-        // const queryOptions = getQueryOptions(req.query, [{ model: User, as: 'user' }]);
-        const queryOptions = getQueryOptions(req.query);
+        const queryOptions = getQueryOptions(req.query, [{ model: User, as: 'user' }]);
+        // const queryOptions = getQueryOptions(req.query);
 
         // Include model User dan filter berdasarkan role 'driver'
-        queryOptions.include = [
-            {
-                model: User,
-                as: 'user', // Asosiasi ke model User
-                where: { role: 'driver' }, // Filter berdasarkan role 'driver' pada tabel User
-            },
-    ];
+    //     queryOptions.include = [
+    //         {
+    //             model: User,
+    //             as: 'user', // Asosiasi ke model User
+    //             where: { role: 'driver' }, // Filter berdasarkan role 'driver' pada tabel User
+    //         },
+    // ];
 
         // queryOptions.where = { role: 'driver' };
 

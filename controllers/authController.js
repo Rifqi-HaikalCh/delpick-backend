@@ -9,26 +9,26 @@ const { saveBase64Image } = require('../utils/imageHelper');
 /**
  * Fungsi untuk menghasilkan token JWT
  */
-const generateToken = (user) => {
-    return jwt.sign(
-        { id: user.id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-    );
-};
-// const generateTokenV2 = (user) => {
-//     const payload = {
-//         id: user.id,
-//         role: user.role,
-//         iat: Math.floor(Date.now() / 1000),  // Waktu saat token dibuat
-//         exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)  // Token kedaluwarsa dalam 24 jam
-//     };
+// const generateToken = (user) => {
 //     return jwt.sign(
-//         payload,
+//         { id: user.id, role: user.role },
 //         process.env.JWT_SECRET,
 //         { expiresIn: '7d' }
 //     );
 // };
+const generateToken = (user) => {
+    const payload = {
+        id: user.id,
+        role: user.role,
+        iat: Math.floor(Date.now() / 1000),  // Waktu saat token dibuat
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24)  // Token kedaluwarsa dalam 24 jam
+    };
+    return jwt.sign(
+        payload,
+        process.env.JWT_SECRET,
+        // { expiresIn: '7d' }
+    );
+};
 
 
 /**
