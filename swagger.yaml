@@ -503,7 +503,7 @@ paths:
         "500":
           description: Terjadi kesalahan saat mengupdate data driver
 
-  /drivers/status:
+  /drivers/status/{id}:
     put:
       summary: Mengupdate status driver (active/inactive)
       tags:
@@ -964,7 +964,7 @@ components:
           type: string
         rating:
           type: number
-        reviewsCount:
+        reviews_count:
           type: integer
         latitude:
           type: number
@@ -1208,17 +1208,6 @@ components:
     CreateOrderRequest:
       type: object
       properties:
-        deliveryAddress:
-          type: string
-        subtotal:
-          type: number
-        serviceCharge:
-          type: number
-        total:
-          type: number
-        orderDate:
-          type: string
-          format: date-time
         notes:
           type: string
         storeId:
@@ -1231,16 +1220,10 @@ components:
     CreateOrderItemRequest:
       type: object
       properties:
-        name:
-          type: string
-        price:
-          type: number
+        id:
+          type: integer
         quantity:
           type: integer
-        imageUrl:
-          type: string
-        status:
-          type: string
 
     CreateReviewRequest:
       type: object
