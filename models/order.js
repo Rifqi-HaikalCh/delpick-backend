@@ -25,9 +25,10 @@ module.exports = (sequelize, DataTypes) => {
   Order.init(
     {
       id: {
-        type: DataTypes.STRING,
+        type: DataTypes.INTEGER,
         primaryKey: true,
       },
+      code: DataTypes.STRING,
       deliveryAddress: DataTypes.STRING,
       subtotal: DataTypes.DOUBLE,
       serviceCharge: DataTypes.DOUBLE,

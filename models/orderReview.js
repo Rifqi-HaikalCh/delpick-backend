@@ -13,7 +13,7 @@ module.exports = (sequelize, DataTypes) => {
     OrderReview.init(
         {
             orderId: {
-                type: DataTypes.STRING,
+                type: DataTypes.INTEGER,
                 allowNull: false,
                 unique: true, // Pastikan satu order hanya memiliki satu review
             },

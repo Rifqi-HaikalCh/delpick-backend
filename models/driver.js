@@ -21,7 +21,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.FLOAT,
         defaultValue: 0,
       },
-      reviewsCount: {
+      reviews_count: {
         type: DataTypes.INTEGER,
         defaultValue: 0,
       },
