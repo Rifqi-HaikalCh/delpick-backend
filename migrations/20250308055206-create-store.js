@@ -28,25 +28,25 @@ module.exports = {
       description: {
         type: Sequelize.TEXT
       },
-      open_time: {
+      openTime: {
         type: Sequelize.TIME
       },
-      close_time: {
+      closeTime: {
         type: Sequelize.TIME
       },
       rating: {
         type: Sequelize.FLOAT
       },
-      total_products: {
+      totalProducts: {
         type: Sequelize.INTEGER
       },
-      image_url: {
+      imageUrl: {
         type: Sequelize.STRING
       },
       phone: {
         type: Sequelize.STRING
       },
-      review_count: {
+      reviewCount: {
         type: Sequelize.INTEGER
       },
       latitude: {

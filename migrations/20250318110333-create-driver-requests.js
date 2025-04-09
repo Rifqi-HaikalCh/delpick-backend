@@ -10,7 +10,7 @@ module.exports = {
         type: Sequelize.INTEGER,
       },
       orderId: {
-        type: Sequelize.STRING,
+        type: Sequelize.INTEGER,
         allowNull: false,
         references: {
           model: 'Orders', // Nama tabel order
