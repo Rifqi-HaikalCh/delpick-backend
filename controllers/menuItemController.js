@@ -1,7 +1,14 @@
-const { MenuItem } = require('../models');
+const { MenuItem, Store } = require('../models');
 const { getQueryOptions } = require('../utils/queryHelper');
 const response = require('../utils/response');
 const { saveBase64Image } = require('../utils/imageHelper');
+
+/** 
+ * Helper untuk ambil store berdasarkan user
+ * */
+const getStoreByUserId = async (userId) => {
+    return await Store.findOne({ where: { userId } });
+};
 
 /**
  * Mendapatkan semua menu item
@@ -11,9 +18,13 @@ const { saveBase64Image } = require('../utils/imageHelper');
 const getAllMenuItems = async (req, res) => {
     try {
         const queryOptions = getQueryOptions(req.query);
+        const store = await getStoreByUserId(req.user.id);
+        if (!store) {
+            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan untuk user ini' });
+        }
 
         // Hanya ambil menu item dari toko milik owner
-        queryOptions.where = { storeId: req.user.id };
+        queryOptions.where = { storeId: store.id };
 
         const { count, rows: menuItems } = await MenuItem.findAndCountAll(queryOptions);
 
@@ -111,8 +122,14 @@ const createMenuItem = async (req, res) => {
             imageUrl = saveBase64Image(image, 'menu-items', 'menu');
         }
 
+        // get storeId from user
+        const store = await getStoreByUserId(req.user.id);
+        if (!store) {
+            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan untuk user ini' });
+        }
+
         const menuItem = await MenuItem.create({
-            storeId: req.user.id,
+            storeId: store.id,
             name,
             price,
             description,
@@ -144,8 +161,13 @@ const updateMenuItem = async (req, res) => {
         const { id } = req.params;
         const { name, price, description, image, quantity } = req.body;
 
+        const store = await getStoreByUserId(req.user.id);
+        if (!store) {
+            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan untuk user ini' });
+        }
+
         const menuItem = await MenuItem.findOne({
-            where: { id, storeId: req.user.id }, // Hanya owner yang bisa mengupdate
+            where: { id, storeId: store.id }, // Hanya owner yang bisa mengupdate
         });
 
         if (!menuItem) {
@@ -189,8 +211,13 @@ const deleteMenuItem = async (req, res) => {
     try {
         const { id } = req.params;
 
+        const store = await getStoreByUserId(req.user.id);
+        if (!store) {
+            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan untuk user ini' });
+        }
+
         const menuItem = await MenuItem.findOne({
-            where: { id, storeId: req.user.id }, // Hanya owner yang bisa menghapus
+            where: { id, storeId: store.id },
         });
 
         if (!menuItem) {

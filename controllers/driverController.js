@@ -9,17 +9,17 @@ const bcrypt = require('bcryptjs');
  */
 const getAllDrivers = async (req, res) => {
     try {
-        const queryOptions = getQueryOptions(req.query, [{ model: User, as: 'user' }]);
-        // const queryOptions = getQueryOptions(req.query);
+        // const queryOptions = getQueryOptions(req.query, [{ model: User, as: 'user' }]);
+        const queryOptions = getQueryOptions(req.query);
 
         // Include model User dan filter berdasarkan role 'driver'
-    //     queryOptions.include = [
-    //         {
-    //             model: User,
-    //             as: 'user', // Asosiasi ke model User
-    //             where: { role: 'driver' }, // Filter berdasarkan role 'driver' pada tabel User
-    //         },
-    // ];
+        queryOptions.include = [
+            {
+                model: User,
+                as: 'user', // Asosiasi ke model User
+                where: { role: 'driver' }, // Filter berdasarkan role 'driver' pada tabel User
+            },
+        ];
 
         // queryOptions.where = { role: 'driver' };
 
@@ -99,7 +99,7 @@ const createDriver = async (req, res) => {
             userId: user.id,
             vehicle_number,
             rating: 0, // Nilai default rating
-            reviewsCount: 0, // Nilai default reviewsCount
+            reviews_count: 0, // Nilai default reviewsCount
             latitude: null, // Nilai default latitude
             longitude: null, // Nilai default longitude
             status: 'inactive', // Nilai default status
