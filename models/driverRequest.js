@@ -6,13 +6,13 @@ module.exports = (sequelize, DataTypes) => {
         static associate(models) {
             // Relasi ke Order
             DriverRequest.belongsTo(models.Order, {
-                foreignKey: 'orderId',
+                foreignKey: 'order_id',
                 as: 'order',
             });
 
-            // Relasi ke User (Driver)
-            DriverRequest.belongsTo(models.User, {
-                foreignKey: 'driverId',
+            // Relasi ke Driver
+            DriverRequest.belongsTo(models.Driver, {
+                foreignKey: 'driver_id',
                 as: 'driver',
             });
         }
@@ -20,23 +20,48 @@ module.exports = (sequelize, DataTypes) => {
 
     DriverRequest.init(
         {
-            orderId: {
+            id: {
+                type: DataTypes.INTEGER,
+                primaryKey: true,
+                autoIncrement: true
+            },
+            order_id: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
             },
-            driverId: {
+            driver_id: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
             },
             status: {
-                type: DataTypes.STRING,
+                type: DataTypes.ENUM('pending', 'accepted', 'rejected', 'completed', 'expired'),
                 allowNull: false,
-                defaultValue: 'pending', // Status: pending, accepted, rejected
+                defaultValue: 'pending', // Status: pending, accepted, rejected, completed, expired
             },
+            estimated_pickup_time: {
+                type: DataTypes.DATE,
+                allowNull: true
+            },
+            estimated_delivery_time: {
+                type: DataTypes.DATE,
+                allowNull: true
+            },
+            created_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            },
+            updated_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            }
         },
         {
             sequelize,
             modelName: 'DriverRequest',
+            tableName: 'driver_requests',
+            timestamps: false
         }
     );
 

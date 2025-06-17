@@ -5,17 +5,29 @@ module.exports = (sequelize, DataTypes) => {
         static associate(models) {
             // Relasi ke Order
             OrderReview.belongsTo(models.Order, {
-                foreignKey: 'orderId',
+                foreignKey: 'order_id',
                 as: 'order',
+            });
+            OrderReview.belongsTo(models.User, {
+                foreignKey: 'customer_id',
+                as: 'customer',
             });
         }
     }
     OrderReview.init(
         {
-            orderId: {
+            id: {
                 type: DataTypes.INTEGER,
-                allowNull: false,
-                unique: true, // Pastikan satu order hanya memiliki satu review
+                primaryKey: true,
+                autoIncrement: true
+            },
+            order_id: {
+                type: DataTypes.INTEGER,
+                allowNull: false
+            },
+            customer_id: {
+                type: DataTypes.INTEGER,
+                allowNull: false
             },
             rating: {
                 type: DataTypes.INTEGER,
@@ -29,10 +41,22 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.TEXT,
                 allowNull: true,
             },
+            created_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            },
+            updated_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            }
         },
         {
             sequelize,
             modelName: 'OrderReview',
+            tableName: 'order_reviews',
+            timestamps: false
         }
     );
     return OrderReview;

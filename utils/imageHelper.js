@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { logger } = require('./logger');
 
 /**
  * Menyimpan base64 sebagai file gambar
@@ -12,6 +13,8 @@ const saveBase64Image = (base64String, folder, prefix) => {
     try {
         // Buat direktori jika belum ada
         const uploadDir = path.join(__dirname, `../uploads/${folder}`);
+        // Cek path folder
+        logger.info("Upload directory:", uploadDir);
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -26,6 +29,7 @@ const saveBase64Image = (base64String, folder, prefix) => {
         const imageBuffer = Buffer.from(matches[2], 'base64');
         const fileName = `${prefix}_${Date.now()}.${extension}`; // Nama file unik
         const filePath = path.join(uploadDir, fileName);
+        logger.info("Saving image to:", filePath);  // Cek path file yang digunakan
 
         // Simpan file
         fs.writeFileSync(filePath, imageBuffer);

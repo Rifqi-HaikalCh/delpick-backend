@@ -2,46 +2,63 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('OrderReviews', {
+    await queryInterface.createTable('order_reviews', {
       id: {
-        allowNull: false,
-        autoIncrement: true,
+        type: Sequelize.INTEGER,
         primaryKey: true,
-        type: Sequelize.INTEGER,
+        autoIncrement: true
       },
-      orderId: {
+      order_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
-        unique: true, // Pastikan satu order hanya memiliki satu review
         references: {
-          model: 'Orders',
-          key: 'id',
+          model: 'orders',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
+      },
+      customer_id: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: {
+          model: 'users',
+          key: 'id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'CASCADE'
       },
       rating: {
         type: Sequelize.INTEGER,
         allowNull: false,
+        validate: {
+          min: 1,
+          max: 5
+        }
       },
       comment: {
         type: Sequelize.TEXT,
-        allowNull: true,
+        allowNull: true
       },
-      createdAt: {
-        allowNull: false,
+      created_at: {
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
-      },
-      updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       },
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+      }
     });
+
+    // Add indexes
+    await queryInterface.addIndex('order_reviews', ['order_id']);
+    await queryInterface.addIndex('order_reviews', ['customer_id']);
+    await queryInterface.addIndex('order_reviews', ['rating']);
   },
 
   down: async (queryInterface) => {
-    await queryInterface.dropTable('OrderReviews');
-  },
+    await queryInterface.dropTable('order_reviews');
+  }
 };

@@ -1,57 +1,64 @@
 'use strict';
 
 module.exports = {
-  async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('DriverRequests', {
+  up: async (queryInterface, Sequelize) => {
+    await queryInterface.createTable('driver_requests', {
       id: {
-        allowNull: false,
-        autoIncrement: true,
+        type: Sequelize.INTEGER,
         primaryKey: true,
-        type: Sequelize.INTEGER,
+        autoIncrement: true
       },
-      orderId: {
+      order_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: 'Orders', // Nama tabel order
-          key: 'id',
+          model: 'orders',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
       },
-      driverId: {
+      driver_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: 'Users', // Nama tabel user (driver)
-          key: 'id',
+          model: 'drivers',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
       },
       status: {
-        type: Sequelize.STRING,
-        allowNull: false,
-        defaultValue: 'pending', // Status awal
+        type: Sequelize.ENUM('pending', 'accepted', 'rejected', 'completed'),
+        defaultValue: 'pending'
       },
-      createdAt: {
-        allowNull: false,
+      estimated_pickup_time: {
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        allowNull: true
       },
-      updatedAt: {
-        allowNull: false,
+      estimated_delivery_time: {
         type: Sequelize.DATE,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        allowNull: true
       },
+      created_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+      },
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+      }
     });
 
-    // Tambahkan index untuk mempercepat pencarian berdasarkan orderId dan driverId
-    await queryInterface.addIndex('DriverRequests', ['orderId']);
-    await queryInterface.addIndex('DriverRequests', ['driverId']);
+    // Add indexes
+    await queryInterface.addIndex('driver_requests', ['order_id']);
+    await queryInterface.addIndex('driver_requests', ['driver_id']);
+    await queryInterface.addIndex('driver_requests', ['status']);
   },
 
-  async down(queryInterface) {
-    await queryInterface.dropTable('DriverRequests');
-  },
+  down: async (queryInterface) => {
+    await queryInterface.dropTable('driver_requests');
+  }
 };

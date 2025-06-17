@@ -10,19 +10,58 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // Relasi dengan Store
-      MenuItem.belongsTo(models.Store, { foreignKey: 'storeId' });
+      MenuItem.belongsTo(models.Store, { foreignKey: 'store_id' });
     }
   }
   MenuItem.init({
-    name: DataTypes.STRING,
-    price: DataTypes.INTEGER,
-    description: DataTypes.TEXT,
-    imageUrl: DataTypes.STRING,
-    storeId: DataTypes.INTEGER,
-    quantity: DataTypes.INTEGER
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    price: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    image_url: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    store_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    category: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    is_available: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    }
   }, {
     sequelize,
     modelName: 'MenuItem',
+    tableName: 'menu_items',
+    timestamps: false
   });
   return MenuItem;
 };

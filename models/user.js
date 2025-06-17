@@ -4,27 +4,65 @@ module.exports = (sequelize, DataTypes) => {
   class User extends Model {
     static associate(models) {
       // Relasi dengan Store
-      User.hasOne(models.Store, { foreignKey: 'userId' });
+      User.hasOne(models.Store, { foreignKey: 'user_id', as: 'store' });
 
       // Relasi dengan Orders (Customer)
-      User.hasMany(models.Order, { foreignKey: 'customerId' });
+      User.hasMany(models.Order, { foreignKey: 'customer_id' });
 
       // Relasi dengan Driver
-      User.hasOne(models.Driver, { foreignKey: 'userId' });
+      User.hasOne(models.Driver, { foreignKey: 'user_id', as: 'driver' });
     }
   }
   User.init({
-    name: DataTypes.STRING,
-    phone: DataTypes.STRING,
-    email: DataTypes.STRING,
-    password: DataTypes.STRING,
-    role: DataTypes.ENUM('customer', 'store', 'driver', 'admin'),
-    avatar: DataTypes.STRING,
-    createdAt: DataTypes.DATE,
-    updatedAt: DataTypes.DATE,
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    role: {
+      type: DataTypes.ENUM('customer', 'driver', 'admin'),
+      defaultValue: 'customer'
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    address: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    fcm_token: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    }
   }, {
     sequelize,
     modelName: 'User',
+    tableName: 'users',
+    timestamps: false
   });
   return User;
 };

@@ -10,31 +10,72 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // Relasi dengan User
-      Store.belongsTo(models.User, { foreignKey: 'userId', as: 'user' });
+      Store.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
 
       // Relasi dengan MenuItems
-      Store.hasMany(models.MenuItem, { foreignKey: 'storeId' });
+      Store.hasMany(models.MenuItem, { foreignKey: 'store_id' });
     }
   }
   Store.init({
-    userId: DataTypes.INTEGER,
-    name: DataTypes.STRING,
-    address: DataTypes.TEXT,
-    description: DataTypes.TEXT,
-    openTime: DataTypes.TIME,
-    closeTime: DataTypes.TIME,
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true
+    },
+    user_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    address: {
+      type: DataTypes.TEXT,
+      allowNull: false
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    open_time: DataTypes.TIME,
+    close_time: DataTypes.TIME,
     rating: DataTypes.FLOAT,
-    totalProducts: DataTypes.INTEGER,
-    imageUrl: DataTypes.STRING,
-    phone: DataTypes.STRING,
-    reviewCount: DataTypes.INTEGER,
-    latitude: DataTypes.FLOAT,
-    longitude: DataTypes.FLOAT,
-    distance: DataTypes.FLOAT
+    total_products: DataTypes.INTEGER,
+    image_url: DataTypes.STRING,
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    review_count: DataTypes.INTEGER,
+    latitude: {
+      type: DataTypes.DECIMAL(10, 8),
+      allowNull: false
+    },
+    longitude: {
+      type: DataTypes.DECIMAL(10, 8),
+      allowNull: false
+    },
+    distance: DataTypes.FLOAT,
+    status: {
+      type: DataTypes.ENUM('active', 'inactive', 'closed'),
+      defaultValue: 'active'
+    },
+    created_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
+    }
   }, {
     sequelize,
     modelName: 'Store',
-    timestamps : true,
+    tableName: 'stores',
+    timestamps: false
   });
   return Store;
 };

@@ -2,45 +2,65 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('Drivers', {
+    await queryInterface.createTable('drivers', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER
       },
-      userId: {
+      user_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
+        unique: true,
         references: {
-          model: 'Users',
-          key: 'id',
+          model: 'users',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
       },
-      vehicle_number: {
-        type: Sequelize.STRING
+      license_number: {
+        type: Sequelize.STRING,
+        allowNull: false,
+        unique: true
+      },
+      vehicle_plate: {
+        type: Sequelize.STRING,
+        allowNull: false
+      },
+      status: {
+        type: Sequelize.ENUM('active', 'inactive', 'busy'),
+        defaultValue: 'active'
       },
       rating: {
-        type: Sequelize.FLOAT
+        type: Sequelize.DECIMAL(3, 2),
+        allowNull: false,
+        defaultValue: 5.00
       },
       reviews_count: {
-        type: Sequelize.INTEGER
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        defaultValue: 0
       },
-      createdAt: {
+      created_at: {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         type: Sequelize.DATE
       },
-      updatedAt: {
+      updated_at: {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         type: Sequelize.DATE
       }
     });
+
+    // Add indexes
+    await queryInterface.addIndex('drivers', ['user_id']);
+    await queryInterface.addIndex('drivers', ['status']);
+    await queryInterface.addIndex('drivers', ['rating']);
   },
   async down(queryInterface) {
-    await queryInterface.dropTable('Drivers');
+    await queryInterface.dropTable('drivers');
   }
 };

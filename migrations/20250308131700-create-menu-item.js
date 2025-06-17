@@ -2,7 +2,7 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('MenuItems', {
+    await queryInterface.createTable('menu_items', {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -10,43 +10,57 @@ module.exports = {
         type: Sequelize.INTEGER
       },
       name: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
+        allowNull: false
       },
       price: {
-        type: Sequelize.INTEGER
+        type: Sequelize.DECIMAL(10, 2),
+        allowNull: false
       },
       description: {
-        type: Sequelize.TEXT
+        type: Sequelize.TEXT,
+        allowNull: true
       },
-      imageUrl: {
-        type: Sequelize.STRING
+      image_url: {
+        type: Sequelize.STRING,
+        allowNull: true
       },
-      storeId: {
+      store_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: 'Stores',
-          key: 'id',
+          model: 'stores',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
       },
-      quantity: {
-        type: Sequelize.INTEGER
+      category: {
+        type: Sequelize.STRING,
+        allowNull: false
       },
-      createdAt: {
+      is_available: {
+        type: Sequelize.BOOLEAN,
+        defaultValue: true
+      },
+      created_at: {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         type: Sequelize.DATE
       },
-      updatedAt: {
+      updated_at: {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
         type: Sequelize.DATE
       }
     });
+
+    // Add indexes
+    await queryInterface.addIndex('menu_items', ['store_id']);
+    await queryInterface.addIndex('menu_items', ['category']);
+    await queryInterface.addIndex('menu_items', ['is_available']);
   },
   async down(queryInterface) {
-    await queryInterface.dropTable('MenuItems');
+    await queryInterface.dropTable('menu_items');
   }
 };

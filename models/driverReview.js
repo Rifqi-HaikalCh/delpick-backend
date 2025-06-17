@@ -5,24 +5,39 @@ module.exports = (sequelize, DataTypes) => {
         static associate(models) {
             // Relasi ke Driver
             DriverReview.belongsTo(models.Driver, {
-                foreignKey: 'driverId',
+                foreignKey: 'driver_id',
                 as: 'driver',
             });
 
             // Relasi ke User (customer yang memberikan review)
             DriverReview.belongsTo(models.User, {
-                foreignKey: 'userId',
-                as: 'user',
+                foreignKey: 'customer_id',
+                as: 'customer',
+            });
+
+            // Relasi ke Order
+            DriverReview.belongsTo(models.Order, {
+                foreignKey: 'order_id',
+                as: 'order',
             });
         }
     }
     DriverReview.init(
         {
-            driverId: {
+            id: {
+                type: DataTypes.INTEGER,
+                primaryKey: true,
+                autoIncrement: true
+            },
+            order_id: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
             },
-            userId: {
+            driver_id: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+            },
+            customer_id: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
             },
@@ -38,10 +53,26 @@ module.exports = (sequelize, DataTypes) => {
                 type: DataTypes.TEXT,
                 allowNull: true,
             },
+            is_auto_generated: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: false
+            },
+            created_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            },
+            updated_at: {
+                type: DataTypes.DATE,
+                allowNull: false,
+                defaultValue: DataTypes.NOW
+            }
         },
         {
             sequelize,
             modelName: 'DriverReview',
+            tableName: 'driver_reviews',
+            timestamps: false
         }
     );
     return DriverReview;

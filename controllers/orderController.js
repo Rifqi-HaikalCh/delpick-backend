@@ -1,169 +1,334 @@
-const { Order, OrderItem, Store, User, Driver, DriverReview, OrderReview, MenuItem, sequelize } = require('../models');
+const { Order, OrderItem, Store, User, Driver, DriverRequest, DriverReview, OrderReview, MenuItem, sequelize } = require('../models');
+const { getQueryOptions } = require('../utils/queryHelper');
 const response = require('../utils/response');
-const haversine = require('../utils/haversine');
 const euclideanDistance = require('../utils/euclideanDistance');
-const logger = require('../utils/logger');
-const Bull = require('bull');
-const orderQueue = new Bull('order-queue');
+const { logger } = require('../utils/logger');
+const { sendNotification } = require('../utils/notifications');
+// Queue functionality moved to worker.js
 const { Op } = require('sequelize');
 
-/**
- * Mencari driver terdekat dari toko menggunakan algoritma Euclidean.
- * @param {number} storeLat - Latitude toko.
- * @param {number} storeLon - Longitude toko.
- * @returns {Object} - Driver terdekat.
- */
-// const findNearestDriver = async (storeLat, storeLon) => {
-//     const drivers = await Driver.findAll({
-//         include: [{ model: User, as: 'user' }], // Ambil data lokasi driver dari tabel User
-//     });
-
-//     let nearestDriver = null;
-//     let minDistance = Infinity;
-
-//     drivers.forEach((driver) => {
-//         const driverLat = driver.user.latitude;
-//         const driverLon = driver.user.longitude;
-//         // Menggunakan Euclidean untuk mencari jarak driver terdekat.
-//         const distance = euclideanDistance(storeLat, storeLon, driverLat, driverLon);
-
-//         if (distance < minDistance) {
-//             minDistance = distance;
-//             nearestDriver = driver;
-//         }
-//     });
-
-//     return nearestDriver;
-// };
-
 // Fungsi untuk membatalkan order
-async function cancelOrder(orderId) {
+async function cancelOrder(id) {
+    let transaction;
     try {
-        const order = await Order.findByPk(orderId);
-        if (order && order.order_status === 'mencari driver') {
+        transaction = await sequelize.transaction();
+
+        const order = await Order.findByPk(id, {
+            include: [
+                {
+                    model: OrderItem,
+                    as: 'items'
+                }
+            ],
+            transaction
+        });
+
+        if (order && order.order_status === 'pending') {
+            // Kembalikan stok jika order dibatalkan
+            if (order.items && order.items.length > 0) {
+                for (const orderItem of order.items) {
+                    const menuItem = await MenuItem.findOne({
+                        where: {
+                            store_id: order.store_id,
+                            name: orderItem.name
+                        },
+                        transaction
+                    });
+
+                    if (menuItem) {
+                        await menuItem.update({
+                            quantity: menuItem.quantity + orderItem.quantity
+                        }, { transaction });
+                    }
+                }
+            }
+
             await order.update({
-                order_status: 'dibatalkan',
-                cancellationReason: 'Tidak menemukan driver dalam waktu 5 menit'
-            });
-            console.log(`Order ${orderId} dibatalkan karena tidak menemukan driver`);
+                order_status: 'cancelled',
+                cancellation_reason: 'Order dibatalkan'
+            }, { transaction });
+
+            await transaction.commit();
+            logger.info(`Order ${id} dibatalkan dan stok dikembalikan`);
         }
     } catch (error) {
-        console.error('Gagal membatalkan order:', error);
+        if (transaction && !transaction.finished) {
+            await transaction.rollback();
+        }
+        logger.error('Gagal membatalkan order:', error);
     }
 }
 
+// cleanupQueue function removed - handled by worker.js now
+
 // Fungsi pencarian driver di background
-async function findDriverInBackground(storeId, orderId) {
+async function findDriverInBackground(store_id, order_id) {
+    let timeout;
+    let searchInterval;
+    let jobCompleted = false;
+    let lastSearchTime = 0;
+    const SEARCH_COOLDOWN = 30000; // 30 detik cooldown antara pencarian
+    const MAX_RETRIES = 30; // Maksimal 30 kali pencarian (15 menit)
+    let retryCount = 0;
+
     try {
-        const store = await Store.findByPk(storeId);
+        const store = await Store.findByPk(store_id);
         if (!store) {
-            console.error(`Store ${storeId} not found`);
-            await cancelOrder(orderId);
+            console.error(`Store ${store_id} not found`);
+            await cancelOrder(order_id);
             return;
         }
 
-        // Set timeout 5 menit untuk pembatalan otomatis
-        const timeout = setTimeout(async () => {
-            await cancelOrder(orderId);
-        }, 20 * 60 * 1000); // 5 menit dalam milidetik
+        // Set timeout 15 menit untuk pembatalan otomatis
+        timeout = setTimeout(async () => {
+            if (!jobCompleted) {
+                jobCompleted = true;
+                clearInterval(searchInterval);
+                await cancelOrder(order_id);
+                logger.info(`Order ${order_id} dibatalkan karena timeout 15 menit`);
+            }
+        }, 15 * 60 * 1000);
 
-        let driverFound = false;
-        const startTime = Date.now();
-        const maxSearchTime = 20 * 60 * 1000; // 5 menit maksimal pencarian
+        const maxDistance = 5;
+        const BATCH_SIZE = 10; // Jumlah driver yang diproses per batch
 
-        // Loop pencarian driver setiap 30 detik
-        while (Date.now() - startTime < maxSearchTime && !driverFound) {
-            const drivers = await Driver.findAll({
-                include: [{ model: User, as: 'user' }],
-                where: {
-                    status: 'available',
-                    lastActivity: { [Op.gte]: new Date(Date.now() - 15 * 60 * 1000) } // Driver aktif dalam 15 menit terakhir
-                }
-            });
+        // Fungsi untuk mencari driver dengan optimisasi
+        const searchForDriver = async () => {
+            if (jobCompleted) return;
 
-            let nearestDriver = null;
-            let minDistance = Infinity;
+            const now = Date.now();
+            if (now - lastSearchTime < SEARCH_COOLDOWN) return;
+            lastSearchTime = now;
 
-            drivers.forEach((driver) => {
-                const distance = euclideanDistance(
-                    store.latitude,
-                    store.longitude,
-                    driver.user.latitude,
-                    driver.user.longitude
-                );
-
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestDriver = driver;
-                }
-            });
-
-            if (nearestDriver) {
+            if (retryCount >= MAX_RETRIES) {
+                jobCompleted = true;
                 clearTimeout(timeout);
-                driverFound = true;
-
-                await Order.update(
-                    {
-                        driverId: nearestDriver.id,
-                        order_status: 'menunggu konfirmasi driver'
-                    },
-                    { where: { id: orderId } }
-                );
-
-                console.log(`Driver ${nearestDriver.id} ditemukan untuk order ${orderId}`);
+                clearInterval(searchInterval);
+                await cancelOrder(order_id);
+                logger.info(`Order ${order_id} dibatalkan karena mencapai batas maksimal pencarian`);
                 return;
             }
 
-            // Tunggu 30 detik sebelum mencari lagi
-            await new Promise(resolve => setTimeout(resolve, 30000));
-        }
+            retryCount++;
 
-        if (!driverFound) {
-            await cancelOrder(orderId);
-        }
+            try {
+                // Cek apakah sudah ada driver yang menerima order ini
+                const existingAcceptedRequest = await DriverRequest.findOne({
+                    where: {
+                        order_id: order_id,
+                        status: 'accepted'
+                    }
+                });
+
+                if (existingAcceptedRequest) {
+                    jobCompleted = true;
+                    clearTimeout(timeout);
+                    clearInterval(searchInterval);
+                    logger.info(`Order ${order_id} sudah memiliki driver (${existingAcceptedRequest.driver_id}) yang menerima`);
+                    return;
+                }
+
+                // Optimisasi query dengan batasan dan indeks
+                const drivers = await Driver.findAll({
+                    where: {
+                        latitude: { [Op.not]: null },
+                        longitude: { [Op.not]: null },
+                        status: 'active',
+                        [Op.and]: [
+                            sequelize.literal(`ST_Distance_Sphere(
+                                point(longitude, latitude),
+                                point(${store.longitude}, ${store.latitude})
+                            ) <= ${maxDistance * 1000}`)
+                        ]
+                    },
+                    include: [
+                        {
+                            model: User,
+                            as: 'user',
+                            attributes: ['id'],
+                            required: true
+                        },
+                        {
+                            model: DriverRequest,
+                            as: 'driverRequests',
+                            where: {
+                                order_id: order_id,
+                                status: { [Op.ne]: 'rejected' }
+                            },
+                            required: false
+                        }
+                    ],
+                    limit: BATCH_SIZE,
+                    order: [
+                        sequelize.literal(`ST_Distance_Sphere(
+                            point(longitude, latitude),
+                            point(${store.longitude}, ${store.latitude})
+                        ) ASC`)
+                    ]
+                });
+
+                if (drivers.length > 0) {
+                    // Proses driver dalam batch
+                    for (const driver of drivers) {
+                        // Skip driver yang sudah menolak order ini
+                        if (driver.driverRequests &&
+                            driver.driverRequests.some(req => req.status === 'rejected' && req.order_id === order_id)) {
+                            continue;
+                        }
+
+                        // Cek apakah sudah ada request pending untuk driver ini
+                        const existingRequest = await DriverRequest.findOne({
+                            where: {
+                                order_id: order_id,
+                                driver_id: driver.id,
+                                status: 'pending'
+                            }
+                        });
+
+                        if (!existingRequest) {
+                            // Buat driver request baru
+                            const driverRequest = await DriverRequest.create({
+                                order_id: order_id,
+                                driver_id: driver.id,
+                                status: 'pending'
+                            });
+
+                            // Kirim notifikasi ke driver jika ada fcm_token
+                            if (driver.user && driver.user.fcm_token) {
+                                await sendNotification(
+                                    driver.user.fcm_token,
+                                    'Pesanan Baru Menunggu',
+                                    'Ada pesanan baru yang menunggu konfirmasi Anda.',
+                                    { order_id: order_id }
+                                );
+                            }
+
+                            // Schedule timeout untuk driver request
+                            try {
+                                const { workerManager } = require('../worker');
+                                await workerManager.scheduleDriverRequestTimeout(driverRequest.id, 15);
+                                logger.info(`Timeout scheduled for driver request ${driverRequest.id}`);
+                            } catch (workerError) {
+                                logger.error('Error scheduling driver request timeout:', {
+                                    request_id: driverRequest.id,
+                                    error: workerError.message
+                                });
+                            }
+
+                            logger.info(`Driver request created for order ${order_id} with driver ${driver.id}`);
+                            break; // Keluar dari loop setelah menemukan driver pertama
+                        }
+                    }
+                } else {
+                    logger.info(`Tidak menemukan driver yang tersedia dalam radius ${maxDistance} km untuk order ${order_id}`);
+                }
+            } catch (error) {
+                logger.error(`Error dalam pencarian driver untuk order ${order_id}:`, error);
+            }
+        };
+
+        // Jalankan pencarian segera
+        await searchForDriver();
+
+        // Set interval pencarian dengan cooldown
+        searchInterval = setInterval(searchForDriver, SEARCH_COOLDOWN);
+
     } catch (error) {
-        console.error('Error in findDriverInBackground:', error);
-        await cancelOrder(orderId);
+        logger.error('Error in findDriverInBackground:', error);
+        if (!jobCompleted) {
+            jobCompleted = true;
+            clearTimeout(timeout);
+            clearInterval(searchInterval);
+            await cancelOrder(order_id);
+        }
     }
 }
 
+const getStoreByUserId = async (user_id) => {
+    return await Store.findOne({ where: { user_id } });
+};
+
 /**
- * Menghitung estimasi waktu pengiriman menggunakan algoritma Haversine.
- * @param {number} storeLat - Latitude toko.
- * @param {number} storeLon - Longitude toko.
- * @param {number} customerLat - Latitude customer.
- * @param {number} customerLon - Longitude customer.
- * @returns {number} - Estimasi waktu dalam menit.
+ * Menghitung estimasi waktu pengambilan dan pengiriman berdasarkan lokasi driver dan toko
  */
-const calculateEstimatedDeliveryTime = (storeLat, storeLon, customerLat, customerLon) => {
-    // Menggunakan Haversine untuk menghitung jarak di permukaan bumi.
-    const distance = haversine(storeLat, storeLon, customerLat, customerLon);
-    const averageSpeed = 30; // Asumsi kecepatan rata-rata 30 km/jam.
-    const estimatedTime = (distance / averageSpeed) * 60; // Konversi ke menit.
-    return Math.round(estimatedTime);
+const calculateEstimatedTimes = async (driver_id, store_id) => {
+    try {
+        // Ambil data driver dan toko
+        const driver = await Driver.findOne({
+            where: { id: driver_id },
+            include: [{ model: User, as: 'user' }]
+        });
+
+        const store = await Store.findByPk(store_id);
+
+        if (!driver || !store) {
+            throw new Error('Driver atau toko tidak ditemukan');
+        }
+
+        // Hitung jarak dari driver ke toko (dalam km)
+        const distanceToStore = euclideanDistance(
+            driver.latitude,
+            driver.longitude,
+            store.latitude,
+            store.longitude
+        );
+
+        // Estimasi waktu berdasarkan jarak dan kecepatan rata-rata (30 km/jam)
+        const averageSpeed = 30; // km/h
+        const timeToStore = (distanceToStore / averageSpeed) * 60; // dalam menit
+
+        // Tambahkan waktu buffer untuk persiapan
+        const preparationTime = 10; // menit
+        const totalPickupTime = Math.ceil(timeToStore + preparationTime);
+
+        // Estimasi waktu pengiriman (asumsi jarak dari toko ke customer 5km)
+        const deliveryDistance = 5; // km
+        const deliveryTime = Math.ceil((deliveryDistance / averageSpeed) * 60); // dalam menit
+
+        const now = new Date();
+        const estimatedPickupTime = new Date(now.getTime() + totalPickupTime * 60000);
+        const estimatedDeliveryTime = new Date(estimatedPickupTime.getTime() + deliveryTime * 60000);
+
+        return {
+            estimated_pickup_time: estimatedPickupTime,
+            estimated_delivery_time: estimatedDeliveryTime,
+            distance_to_store: distanceToStore,
+            delivery_distance: deliveryDistance
+        };
+    } catch (error) {
+        logger.error('Error calculating estimated times:', error);
+        throw error;
+    }
 };
 
 /**
  * Mendapatkan order berdasarkan user yang sedang login (customer).
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
  */
 const getOrdersByUser = async (req, res) => {
     try {
-        const { id: customerId } = req.user; // Ambil ID user yang sedang login.
-        const orders = await Order.findAll({
-            where: { customerId },
-            include: [
-                { model: OrderItem, as: 'items' },  // Relasi ke OrderItem
-                { model: Store, as: 'store' }, // Relasi ke Store
-                { model: User, as: 'driver' }, // Relasi ke Driver
-            ],
-        });
+        const queryOptions = getQueryOptions(req.query);
+        const customer_id = req.user.id;
+
+        if (!customer_id) {
+            return response(res, {
+                statusCode: 400,
+                message: 'User ID tidak ditemukan',
+            });
+        }
+
+        queryOptions.where = { customer_id };
+
+        const { count, rows: orders } = await Order.findAndCountAll(queryOptions);
 
         return response(res, {
             statusCode: 200,
             message: 'Berhasil mendapatkan data order',
-            data: orders,
+            data: {
+                totalItems: count,
+                totalPages: Math.ceil(count / queryOptions.limit),
+                currentPage: parseInt(req.query.page) || 1,
+                orders
+            },
         });
     } catch (error) {
         return response(res, {
@@ -176,35 +341,28 @@ const getOrdersByUser = async (req, res) => {
 
 /**
  * Mendapatkan order berdasarkan store yang dimiliki oleh owner yang sedang login.
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
  */
 const getOrdersByStore = async (req, res) => {
     try {
-        const { id: ownerId } = req.user; // Ambil ID owner yang sedang login.
-
-        // Cari store yang dimiliki oleh owner
-        const store = await Store.findOne({ where: { ownerId } });
+        const queryOptions = getQueryOptions(req.query);
+        const store = await getStoreByUserId(req.user.id);
         if (!store) {
-            return response(res, {
-                statusCode: 404,
-                message: 'Toko tidak ditemukan',
-            });
+            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan untuk user ini' });
         }
 
-        const orders = await Order.findAll({
-            where: { storeId: store.id },  // Filter berdasarkan storeId
-            include: [
-                { model: OrderItem, as: 'items' }, // Relasi ke OrderItem
-                { model: User, as: 'customer' }, // Relasi ke Customer
-                { model: User, as: 'driver' }, // Relasi ke Driver
-            ],
-        });
+        queryOptions.where = { store_id: store.id };
+
+        const { count, rows: orders } = await Order.findAndCountAll(queryOptions);
 
         return response(res, {
             statusCode: 200,
             message: 'Berhasil mendapatkan data order',
-            data: orders,
+            data: {
+                totalItems: count,
+                totalPages: Math.ceil(count / queryOptions.limit),
+                currentPage: parseInt(req.query.page) || 1,
+                orders
+            }
         });
     } catch (error) {
         return response(res, {
@@ -217,489 +375,489 @@ const getOrdersByStore = async (req, res) => {
 
 /**
  * Membuat order baru dengan request body sederhana (hanya items id)
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
  */
-// const placeOrder = async (req, res) => {
-
-//     try {
-//         const { notes, items: requestedItems, storeId } = req.body;
-//         const { id: customerId } = req.user;
-
-//         // Validasi
-//         if (!requestedItems?.length) {
-//             return response(res, { statusCode: 400, message: 'Items harus diisi' });
-//         }
-
-//         // Validasi storeId sebagai integer
-//         if (!Number.isInteger(storeId)) {
-//             return response(res, { statusCode: 400, message: 'Store ID harus berupa angka' });
-//         }
-
-//         const [store, menuItems] = await Promise.all([
-//             Store.findByPk(storeId),
-//             MenuItem.findAll({
-//                 where: {
-//                     id: requestedItems.map(item => item.itemId),
-//                     storeId // Pastikan item berasal dari store yang benar
-//                 }
-//             })
-//         ]);
-
-//         if (!store) {
-//             return response(res, { statusCode: 404, message: 'Toko tidak ditemukan' });
-//         }
-
-//         if (menuItems.length !== requestedItems.length) {
-//             const missingItems = requestedItems
-//                 .filter(item => !menuItems.some(mi => mi.id === item.itemId))
-//                 .map(item => item.itemId);
-//             return response(res, {
-//                 statusCode: 400,
-//                 message: `Menu item dengan ID ${missingItems.join(', ')} tidak ditemukan`
-//             });
-//         }
-
-//         // Persiapkan order items
-//         const orderItems = menuItems.map(menuItem => {
-//             const reqItem = requestedItems.find(item => item.itemId === menuItem.id);
-//             return {
-//                 name: menuItem.name,
-//                 price: menuItem.price,
-//                 quantity: reqItem.quantity || 1,
-//                 imageUrl: menuItem.imageUrl
-//             };
-//         });
-
-//         // Hitung total
-//         const subtotal = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-//         const serviceCharge = subtotal * 0.1;
-//         const total = subtotal + serviceCharge;
-
-//         // Buat order
-//         const order = await Order.create({
-//             code: `ORD-${Date.now()}`,
-//             deliveryAddress: "Institut Teknologi Del",
-//             subtotal,
-//             serviceCharge,
-//             total,
-//             orderDate: new Date(),
-//             notes: notes || null,
-//             customerId,
-//             storeId,
-//         });
-
-//         console.log(order.id);
-//         // Pastikan order.id tersedia
-//         if (!order.id) {
-//             throw new Error('Gagal mendapatkan ID order');
-//         }
-
-//         // Simpan items ke OrderItem
-//         await OrderItem.bulkCreate(
-//             orderItems.map(item => ({
-//                 ...item,
-//                 orderId: order.id
-//             }))
-//         );
-
-//         // Proses pencarian driver di background
-//         orderQueue.add('find-driver', {
-//             storeId: store.id,
-//             orderId: order.id
-//         });
-
-//         return response(res, {
-//             statusCode: 201,
-//             message: 'Order berhasil dibuat',
-//             data: order,
-//         });
-//     } catch (error) {
-//         logger.error(error);
-//         return response(res, {
-//             statusCode: 500,
-//             message: 'Terjadi kesalahan saat membuat order',
-//             errors: error.message,
-//         });
-//     }
-// };
-
 const placeOrder = async (req, res) => {
+    try {
+        logger.info('Place order request:', { customer_id: req.user.id });
+        const { store_id, items } = req.body;
+
+        const transaction = await sequelize.transaction();
+
+        try {
+            // Calculate total amount
+            let total_amount = 0;
+            const orderItems = [];
+
+            for (const item of items) {
+                const menuItem = await MenuItem.findOne({
+                    where: {
+                        id: item.menu_item_id,
+                        store_id: store_id,
+                        is_available: true
+                    },
+                    transaction
+                });
+
+                if (!menuItem) {
+                    throw new Error(`Menu item ${item.menu_item_id} tidak ditemukan atau tidak tersedia`);
+                }
+
+                const itemTotal = menuItem.price * item.quantity;
+                total_amount += itemTotal;
+
+                orderItems.push({
+                    menu_item_id: menuItem.id,
+                    name: menuItem.name,
+                    description: menuItem.description,
+                    image_url: menuItem.image_url,
+                    category: menuItem.category,
+                    quantity: item.quantity,
+                    price: menuItem.price,
+                    notes: item.notes
+                });
+            }
+
+            // Calculate estimated times
+            const now = new Date();
+            const estimated_pickup_time = new Date(now.getTime() + 15 * 60000); // 15 minutes from now
+            // Titik pengantaran statis
+            const destination_latitude = 2.3834831864787818;
+            const destination_longitude = 99.14857915147614;
+            // Ambil lokasi store
+            const store = await Store.findByPk(store_id);
+            if (!store) {
+                throw new Error('Store tidak ditemukan');
+            }
+            // Hitung jarak (dalam km) dari store ke tujuan
+            const distance_km = euclideanDistance(
+                Number(store.latitude),
+                Number(store.longitude),
+                destination_latitude,
+                destination_longitude
+            ) * 111; // 1 derajat ~ 111 km
+            // Hitung delivery_fee (dibulatkan ke atas)
+            const delivery_fee = Math.ceil(distance_km * 2000);
+            // Estimasi waktu pengantaran: 1.5 menit/km, minimal 5 menit
+            const delivery_minutes = Math.max(5, Math.ceil(distance_km * 1.5));
+            const estimated_delivery_time = new Date(estimated_pickup_time.getTime() + delivery_minutes * 60000);
+
+            // Create order
+            const order = await Order.create({
+                customer_id: req.user.id,
+                store_id: store_id,
+                order_status: 'pending',
+                delivery_status: 'pending',
+                total_amount,
+                delivery_fee,
+                destination_latitude,
+                destination_longitude,
+                estimated_pickup_time: estimated_pickup_time,
+                estimated_delivery_time: estimated_delivery_time,
+                tracking_updates: [{
+                    timestamp: now,
+                    status: 'pending',
+                    message: 'Order telah dibuat'
+                }]
+            }, { transaction });
+
+            // Create order items
+            for (const item of orderItems) {
+                await OrderItem.create({
+                    order_id: order.id,
+                    ...item
+                }, { transaction });
+            }
+
+            await transaction.commit();
+
+            // Start driver search in background
+            findDriverInBackground(store_id, order.id);
+
+            // Kirim notifikasi ke customer jika ada fcm_token
+            const customer = await User.findByPk(req.user.id);
+            if (customer && customer.fcm_token) {
+                await sendNotification(
+                    customer.fcm_token,
+                    'Order Berhasil Dibuat',
+                    'Pesanan Anda telah berhasil dibuat dan sedang diproses.',
+                    { order_id: order.id }
+                );
+            }
+
+            logger.info('Order placed successfully:', { order_id: order.id });
+            return response(res, {
+                statusCode: 201,
+                message: 'Order berhasil dibuat',
+                data: order
+            });
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+    } catch (error) {
+        logger.error('Error placing order:', { error: error.message, stack: error.stack });
+        return response(res, {
+            statusCode: 500,
+            message: 'Terjadi kesalahan saat membuat order',
+            errors: error.message
+        });
+    }
+};
+
+/**
+ * Memproses order oleh toko
+ */
+const processOrderByStore = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body;
+        let transaction;
+
+        try {
+            transaction = await sequelize.transaction();
+
+            const order = await Order.findOne({
+                where: { id },
+                include: [
+                    {
+                        model: OrderItem,
+                        as: 'items'
+                    },
+                    {
+                        model: Store,
+                        as: 'store',
+                        include: [{ model: User, as: 'user' }]
+                    }
+                ],
+                transaction
+            });
+
+            if (!order) {
+                await transaction.rollback();
+                return response(res, {
+                    statusCode: 404,
+                    message: 'Order tidak ditemukan'
+                });
+            }
+
+            if (action === 'approve') {
+                // Cek dan kurangi stok menu saat order akan diproses
+                for (const orderItem of order.items) {
+                    const menuItem = await MenuItem.findOne({
+                        where: {
+                            store_id: order.store_id,
+                            name: orderItem.name
+                        },
+                        transaction
+                    });
+
+                    if (!menuItem) {
+                        await transaction.rollback();
+                        return response(res, {
+                            statusCode: 400,
+                            message: `Menu ${orderItem.name} tidak ditemukan`
+                        });
+                    }
+
+                    if (menuItem.quantity < orderItem.quantity) {
+                        await transaction.rollback();
+                        return response(res, {
+                            statusCode: 400,
+                            message: `Stok tidak mencukupi untuk menu ${menuItem.name}. Tersedia: ${menuItem.quantity}, Diminta: ${orderItem.quantity}`
+                        });
+                    }
+
+                    // Kurangi stok
+                    await menuItem.update({
+                        quantity: menuItem.quantity - orderItem.quantity
+                    }, { transaction });
+                }
+
+                // Update status order
+                await order.update({
+                    order_status: 'preparing'
+                }, { transaction });
+
+                await transaction.commit();
+
+                // Kirim notifikasi ke store jika ada fcm_token
+                if (order.store && order.store.user && order.store.user.fcm_token) {
+                    await sendNotification(
+                        order.store.user.fcm_token,
+                        'Order Baru Masuk',
+                        'Ada pesanan baru yang perlu diproses.',
+                        { order_id: order.id }
+                    );
+                }
+
+                return response(res, {
+                    statusCode: 200,
+                    message: 'Order berhasil disetujui. Status order sekarang: preparing.',
+                    data: order,
+                });
+            } else { // action === 'reject'
+                await order.update({
+                    order_status: 'cancelled',
+                    cancellation_reason: 'Ditolak oleh toko'
+                }, { transaction });
+
+                await transaction.commit();
+
+                // Kirim notifikasi ke customer jika order ditolak
+                const customer = await User.findByPk(order.customer_id);
+                if (customer && customer.fcm_token) {
+                    await sendNotification(
+                        customer.fcm_token,
+                        'Order Ditolak',
+                        'Pesanan Anda ditolak oleh toko.',
+                        { order_id: order.id }
+                    );
+                }
+
+                return response(res, {
+                    statusCode: 200,
+                    message: 'Order berhasil ditolak',
+                    data: order,
+                });
+            }
+        } catch (error) {
+            if (transaction) await transaction.rollback();
+            throw error;
+        }
+    } catch (error) {
+        logger.error('Error processing order:', error);
+        return response(res, {
+            statusCode: 500,
+            message: 'Terjadi kesalahan saat memproses order',
+            errors: error.message,
+        });
+    }
+};
+
+/**
+ * Mengupdate status order berdasarkan ID.
+ */
+const updateOrderStatus = async (req, res) => {
     let transaction;
     try {
         transaction = await sequelize.transaction();
+        logger.info('Update order status request:', { order_id: req.params.id });
 
-        const { notes, items: requestedItems, storeId } = req.body;
-        const { id: customerId } = req.user;
-
-        // Validasi
-        if (!requestedItems?.length) {
-            await transaction.rollback();
-            return response(res, { statusCode: 400, message: 'Items harus diisi' });
-        }
-
-        // Validasi storeId sebagai integer
-        if (!Number.isInteger(storeId)) {
-            await transaction.rollback();
-            return response(res, { statusCode: 400, message: 'Store ID harus berupa angka' });
-        }
-
-        const [store, menuItems] = await Promise.all([
-            Store.findByPk(storeId, { transaction }),
-            MenuItem.findAll({
-                where: {
-                    id: requestedItems.map(item => item.itemId),
-                    storeId
-                },
-                transaction
-            })
-        ]);
-
-        if (!store) {
-            await transaction.rollback();
-            return response(res, { statusCode: 404, message: 'Toko tidak ditemukan' });
-        }
-
-        if (menuItems.length !== requestedItems.length) {
-            const missingItems = requestedItems
-                .filter(item => !menuItems.some(mi => mi.id === item.itemId))
-                .map(item => item.itemId);
-            await transaction.rollback();
-            return response(res, {
-                statusCode: 400,
-                message: `Menu item dengan ID ${missingItems.join(', ')} tidak ditemukan`
-            });
-        }
-
-        // Persiapkan order items
-        const orderItems = menuItems.map(menuItem => {
-            const reqItem = requestedItems.find(item => item.itemId === menuItem.id);
-            return {
-                name: menuItem.name,
-                price: menuItem.price,
-                quantity: reqItem.quantity || 1,
-                imageUrl: menuItem.imageUrl
-            };
-        });
-
-        // Hitung total
-        const subtotal = orderItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const serviceCharge = subtotal * 0.1;
-        const total = subtotal + serviceCharge;
-
-        // Buat order dalam transaction
-        const order = await Order.create({
-            code: `ORD-${Date.now()}`,
-            deliveryAddress: "Institut Teknologi Del",
-            subtotal,
-            serviceCharge,
-            total,
-            orderDate: new Date(),
-            notes: notes || null,
-            customerId,
-            storeId,
-            order_status: 'pending',
-        }, { transaction });
-
-        // find order by order code
-        const orderCode = order.code;
-        const orderResult = await Order.findOne({
-            where: { code: orderCode },
-            transaction
-        });
-
-        if (!orderResult?.id) {
-            await transaction.rollback();
-            throw new Error('Gagal mendapatkan ID order');
-        }
-
-        // Buat order items
-        const orderItemsData = orderItems.map(item => ({
-            name: item.name,
-            price: item.price,
-            quantity: item.quantity || 1,
-            imageUrl: item.imageUrl || null,
-            orderId: orderResult.id,
-        }));
-
-        await OrderItem.bulkCreate(orderItemsData, { transaction });
-
-        // Commit transaction jika semua berhasil
-        await transaction.commit();
-
-        // Proses background
-        orderQueue.add('find-driver', {
-            storeId: store.id,
-            orderId: orderResult.id
-        });
-
-        return response(res, {
-            statusCode: 201,
-            message: 'Order berhasil dibuat',
-            order
-        });
-
-    } catch (error) {
-        // Rollback hanya jika transaction masih aktif
-        if (transaction && !transaction.finished) {
-            await transaction.rollback();
-        }
-
-        logger.error('Order creation failed:', error);
-        return response(res, { statusCode: 500, message: 'Terjadi kesalahan saat membuat order', data: null, errors: error.message });
-    }
-};
-
-/**
- * Approve order oleh toko.
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
- */
-const approveOrder = async (req, res) => {
-    try {
-        const { orderId } = req.params;
-        console.log(orderId);
-
-        const order = await Order.findByPk(orderId, {
-            include: [
-                { model: Store, as: 'store' },
-                { model: User, as: 'customer' },
-            ],
-        });
-        if (!order) {
-            return response(res, { statusCode: 404, message: 'Order tidak ditemukan' });
-        }
-        const destinationLatitude = 2.38349390603264; // Koordinat tujuan (contoh).
-        const destinationLongitude = 99.14866498216043;
-
-        // Hitung estimasi pengiriman menggunakan algoritma Haversine.
-        const estimatedDeliveryTime = calculateEstimatedDeliveryTime(
-            order.store.latitude,
-            order.store.longitude,
-            destinationLatitude,
-            destinationLongitude
-        );
-
-        // Update status order dan tambahkan estimasi waktu pengiriman.
-        await order.update({
-            order_status: 'approved',
-            estimatedDeliveryTime,
-        });
-
-        return response(res, {
-            statusCode: 200,
-            message: 'Order berhasil di-approve. Driver sedang menuju ke toko.',
-            data: order,
-        });
-    } catch (error) {
-        return response(res, {
-            statusCode: 500,
-            message: 'Terjadi kesalahan saat meng-approve order',
-            errors: error.message,
-        });
-    }
-};
-
-/**
- * Mendapatkan detail order berdasarkan ID.
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
- */
-const getOrderDetail = async (req, res) => {
-    try {
-        const { id: orderId } = req.params;
-        const order = await Order.findOne({
-            where: { id: orderId },
+        const { order_status, delivery_status, estimated_pickup_time, estimated_delivery_time } = req.body;
+        const order = await Order.findByPk(req.params.id, {
             include: [
                 { model: OrderItem, as: 'items' },
                 { model: Store, as: 'store' },
-                { model: User, as: 'customer' },
-                { model: User, as: 'driver' },
-                { model: OrderReview, as: 'orderReviews' },
-                { model: DriverReview, as: 'driverReviews' },
+                { model: User, as: 'customer' }
             ],
+            transaction
         });
 
+        if (!order) {
+            await transaction.rollback();
+            logger.warn('Order not found:', { order_id: req.params.id });
+            return response(res, {
+                statusCode: 404,
+                message: 'Order tidak ditemukan'
+            });
+        }
+
+        const updateData = {
+            order_status,
+            delivery_status
+        };
+
+        if (estimated_pickup_time) {
+            updateData.estimated_pickup_time = estimated_pickup_time;
+        }
+
+        if (estimated_delivery_time) {
+            updateData.estimated_delivery_time = estimated_delivery_time;
+        }
+
+        // Update actual times based on status
+        if (order_status === 'ready_for_pickup') {
+            updateData.actual_pickup_time = new Date();
+        } else if (order_status === 'delivered') {
+            updateData.actual_delivery_time = new Date();
+        }
+
+        // If order is cancelled, return items to inventory
+        if (order_status === 'cancelled' && order.order_status !== 'cancelled') {
+            for (const orderItem of order.items) {
+                const menuItem = await MenuItem.findOne({
+                    where: {
+                        store_id: order.store_id,
+                        name: orderItem.name
+                    },
+                    transaction
+                });
+
+                if (menuItem) {
+                    await menuItem.update({
+                        quantity: menuItem.quantity + orderItem.quantity
+                    }, { transaction });
+                }
+            }
+        }
+
+        await order.update(updateData, { transaction });
+
+        // Send notifications based on status changes
+        if (order.customer && order.customer.fcm_token) {
+            let notificationTitle = '';
+            let notificationBody = '';
+
+            switch (order_status) {
+                case 'confirmed':
+                    notificationTitle = 'Pesanan Dikonfirmasi';
+                    notificationBody = 'Pesanan Anda telah dikonfirmasi oleh toko.';
+                    break;
+                case 'preparing':
+                    notificationTitle = 'Pesanan Sedang Diproses';
+                    notificationBody = 'Pesanan Anda sedang diproses oleh toko.';
+                    break;
+                case 'ready_for_pickup':
+                    notificationTitle = 'Pesanan Siap Diambil';
+                    notificationBody = 'Pesanan Anda siap untuk diambil oleh driver.';
+                    break;
+                case 'delivered':
+                    notificationTitle = 'Pesanan Selesai';
+                    notificationBody = 'Pesanan Anda telah selesai diantar.';
+                    break;
+                case 'cancelled':
+                    notificationTitle = 'Pesanan Dibatalkan';
+                    notificationBody = 'Pesanan Anda telah dibatalkan.';
+                    break;
+            }
+
+            if (notificationTitle && notificationBody) {
+                await sendNotification(
+                    order.customer.fcm_token,
+                    notificationTitle,
+                    notificationBody,
+                    { order_id: order.id }
+                );
+            }
+        }
+
+        await transaction.commit();
+
+        logger.info('Order status updated successfully:', { order_id: order.id });
+        return response(res, {
+            statusCode: 200,
+            message: 'Status order berhasil diperbarui',
+            data: order
+        });
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        logger.error('Error updating order status:', { error: error.message, stack: error.stack });
+        return response(res, {
+            statusCode: 500,
+            message: 'Terjadi kesalahan saat memperbarui status order',
+            errors: error.message
+        });
+    }
+};
+
+/**
+ * Cancel order.
+ */
+const cancelOrderRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const order = await Order.findByPk(id);
         if (!order) {
             return response(res, { statusCode: 404, message: 'Order tidak ditemukan' });
         }
 
+        await order.update({ order_status: 'cancelled' });  // Update status order menjadi 'cancelled'
+
         return response(res, {
             statusCode: 200,
-            message: 'Berhasil mendapatkan detail order',
+            message: 'Order berhasil dibatalkan',
             data: order,
         });
+
     } catch (error) {
         return response(res, {
             statusCode: 500,
-            message: 'Terjadi kesalahan saat mengambil detail order',
+            message: 'Terjadi kesalahan saat membatalkan order',
             errors: error.message,
         });
     }
-};
-
-
-// Fungsi untuk memperbarui status order
-/**
- * Mengupdate status order berdasarkan ID.
- * @param {Object} req - Request object. Harus berisi parameter `orderId` dalam URL atau body.
- * @param {Object} res - Response object. Akan mengirimkan hasil atau error message.
- * 
- * @body {Object} req.body - Body request yang berisi data untuk update status.
- * @body {string} req.body.status - Status baru yang akan diterapkan pada order.
- * 
- * @param {string} req.params.orderId - ID dari order yang ingin diperbarui (jika menggunakan URL parameter).
- * 
- * @returns {Object} - Response object dengan status pengupdatean dan data order yang telah diperbarui.
- */
-// const updateOrderStatus = async (req, res) => {//version 1
-//     try {
-//       const { orderId, status } = req.body;
-
-//       // Validasi status order
-//       const validStatuses = ['menunggu driver', 'diambil', 'diantar', 'selesai'];
-//       if (!validStatuses.includes(status)) {
-//         return response(res, { statusCode: 400, message: 'Status tidak valid' });
-//       }
-
-//       const order = await Order.findByPk(orderId);
-//       if (!order) {
-//         return response(res, { statusCode: 404, message: 'Order not found' });
-//       }
-
-//       // Update status order
-//       order.status = status;
-//       await order.save();
-
-//       return response(res, { statusCode: 200, message: 'Order status updated', data: order });
-//     } catch (error) {
-//       return response(res, { statusCode: 500, message: 'Error updating order status' });
-//     }
-//   };
-const updateOrderStatus = async (req, res) => {
-    try {
-        const { orderId, status } = req.body;
-        const { role } = req.user;  // Role dari pengguna yang terautentikasi (admin, driver, atau store)
-
-        // Validasi status order
-        const validStatuses = ['mencari driver', 'diambil', 'diantar', 'selesai'];
-        if (!validStatuses.includes(status)) {
-            return res.status(400).json({ message: 'Status tidak valid' });
-        }
-
-        const order = await Order.findByPk(orderId, {
-            include: [
-                { model: User, as: 'customer' },
-                { model: Driver, as: 'driver' },
-                { model: Store, as: 'store' }
-            ]
-        });
-
-        if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
-        }
-
-        // Logika untuk memeriksa hak akses berdasarkan role
-        if (status === 'diambil' && role === 'store' && order.order_status === 'mencari driver') {
-            // Store dapat mengupdate status ke 'diambil' jika pesanan sudah diambil oleh driver
-            order.status = status;
-        } else if (status === 'diantar' && role === 'driver' && order.order_status === 'diambil') {
-            // Driver dapat mengupdate status ke 'diantar' jika barang sudah diambil dan driver sedang dalam perjalanan
-            order.status = status;
-        } else if (status === 'selesai' && role === 'driver' && order.order_status === 'diantar') {
-            // Driver dapat mengupdate status ke 'selesai' jika barang sudah sampai tujuan
-            order.status = status;
-        } else if (status === 'menunggu driver' && role === 'admin') {
-            // Admin dapat mengupdate status ke 'menunggu driver'
-            order.status = status;
-        } else {
-            return res.status(403).json({ message: 'Akses ditolak: Role tidak sesuai untuk status ini' });
-        }
-
-        // Simpan perubahan status
-        await order.save();
-
-        // Log aktivitas perubahan status
-        console.log(`Order ID: ${orderId} - Status updated to: ${status}`);
-
-        // Kirim pemberitahuan ke customer dan driver
-        if (order.customer) {
-            // Implementasikan pemberitahuan ke customer
-            console.log(`Notification sent to customer: ${order.customer.name}`);
-        }
-        if (order.driver) {
-            // Implementasikan pemberitahuan ke driver
-            console.log(`Notification sent to driver: ${order.driver.name}`);
-        }
-
-        return res.status(200).json({ message: 'Order status updated successfully', order });
-
-    } catch (error) {
-        console.error('Error updating order status:', error);
-        return res.status(500).json({ message: 'Internal Server Error', error: error.message });
-    }
-};
+}
 
 /**
  * Membuat review untuk store atau driver.
- * @param {Object} req - Request object.
- * @param {Object} res - Response object.
  */
 const createReview = async (req, res) => {
     try {
-        const { id: userId } = req.user; // ID customer yang memberikan review.
-        const { orderId, store, driver } = req.body;
+        const { id: user_id } = req.user;
+        const order_id = req.params.id;
+        const { order_review, driver_review } = req.body;
+        let storeData = null;
+        let driverData = null;
 
         // Cek apakah order sudah selesai.
         const order = await Order.findOne({
-            where: { id: orderId, order_status: 'delivered' },
+            where: { id: order_id, order_status: 'delivered' },
         });
         if (!order) {
-            return response(res, { statusCode: 400, message: 'Order belum selesai atau tidak ditemukan' });
+            return response(res, {
+                statusCode: 400,
+                message: 'Hanya order dengan status delivered yang bisa direview'
+            });
         }
 
         // Cek apakah review sudah ada untuk order ini.
         const existingOrderReview = await OrderReview.findOne({
-            where: { orderId, userId },
+            where: { order_id: order_id, customer_id: user_id },
         });
+
         if (existingOrderReview) {
-            return response(res, { statusCode: 400, message: 'Anda sudah memberikan review untuk order ini' });
+            return response(res, {
+                statusCode: 400,
+                message: 'Anda sudah memberikan review untuk order ini'
+            });
         }
 
         // Review untuk store.
-        if (store?.rating && order.storeId) {
+        if (order_review?.rating && order.store_id) {
             await OrderReview.create({
-                orderId,
-                userId,
-                rating: store.rating,
-                comment: store.comment || null,
+                order_id: order_id,
+                customer_id: user_id,
+                rating: order_review.rating,
+                comment: order_review.comment || null,
             });
 
-            const storeData = await Store.findByPk(order.storeId);
+            storeData = await Store.findByPk(order.store_id);
             if (storeData) {
-                const totalRating = storeData.rating * storeData.reviewCount + store.rating;
-                const newReviewCount = storeData.reviewCount + 1;
+                const totalRating = storeData.rating * storeData.review_count + order_review.rating;
+                const newReviewCount = storeData.review_count + 1;
                 const newRating = totalRating / newReviewCount;
 
                 await storeData.update({
                     rating: newRating,
-                    reviewCount: newReviewCount,
+                    review_count: newReviewCount,
                 });
             }
         }
 
         // Review untuk driver.
-        if (driver?.rating && order.driverId) {
+        if (driver_review?.rating && order.driver_id) {
             await DriverReview.create({
-                driverId: order.driverId,
-                userId,
-                rating: driver.rating,
-                comment: driver.comment || null,
+                order_id: order_id,
+                driver_id: order.driver_id,
+                customer_id: user_id,
+                rating: driver_review.rating,
+                comment: driver_review.comment || null,
             });
 
-            const driverData = await Driver.findByPk(order.driverId);
+            driverData = await Driver.findByPk(order.driver_id);
             if (driverData) {
-                const totalRating = driverData.rating * driverData.reviews_count + driver.rating;
+                const totalRating = driverData.rating * driverData.reviews_count + driver_review.rating;
                 const newReviewsCount = driverData.reviews_count + 1;
                 const newRating = totalRating / newReviewsCount;
 
@@ -713,6 +871,19 @@ const createReview = async (req, res) => {
         return response(res, {
             statusCode: 201,
             message: 'Review berhasil dibuat',
+            data: {
+                order_id,
+                order_review: order_review ? {
+                    rating: order_review.rating,
+                    comment: order_review.comment || null
+                } : null,
+                driver_review: driver_review ? {
+                    rating: driver_review.rating,
+                    comment: driver_review.comment || null
+                } : null,
+                store_rating: storeData ? storeData.rating : null,
+                driver_rating: driverData ? driverData.rating : null
+            }
         });
     } catch (error) {
         return response(res, {
@@ -723,13 +894,55 @@ const createReview = async (req, res) => {
     }
 };
 
+/**
+ * Get order by ID
+ */
+const getOrderById = async (req, res) => {
+    try {
+        logger.info('Get order by ID request:', { order_id: req.params.id });
+        const order = await Order.findByPk(req.params.id, {
+            include: [
+                { model: User, as: 'customer', attributes: ['id', 'name', 'phone'] },
+                { model: Store, as: 'store', include: [{ model: User, as: 'user', attributes: ['id', 'name'] }] },
+                { model: Driver, as: 'driver', include: [{ model: User, as: 'user', attributes: ['id', 'name'] }] },
+                { model: OrderItem, as: 'items', include: [{ model: MenuItem, as: 'menuItem' }] }
+            ]
+        });
+
+        if (!order) {
+            logger.warn('Order not found:', { order_id: req.params.id });
+            return response(res, {
+                statusCode: 404,
+                message: 'Order tidak ditemukan',
+            });
+        }
+
+        logger.info('Successfully retrieved order:', { order_id: order.id });
+        return response(res, {
+            statusCode: 200,
+            message: 'Berhasil mendapatkan data order',
+            data: order,
+        });
+    } catch (error) {
+        logger.error('Error getting order by ID:', { error: error.message, stack: error.stack });
+        return response(res, {
+            statusCode: 500,
+            message: 'Terjadi kesalahan saat mengambil data order',
+            errors: error.message,
+        });
+    }
+};
+
 module.exports = {
     findDriverInBackground,
     getOrdersByUser,
     getOrdersByStore,
     placeOrder,
-    approveOrder,
-    getOrderDetail,
+    cancelOrder,
+    processOrderByStore,
     updateOrderStatus,
-    createReview
+    cancelOrderRequest,
+    createReview,
+    getOrderById,
+    calculateEstimatedTimes
 };

@@ -7,7 +7,7 @@ const { Op } = require('sequelize');
  * @returns {Object} - Query options untuk Sequelize
  */
 const getQueryOptions = (queryParams, includeModels = []) => {
-    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'ASC', search, ...filters } = queryParams;
+    const { page = 1, limit = 10, sortBy = 'created_at', sortOrder = 'ASC', search, ...filters } = queryParams;
 
     // Pagination
     const offset = (page - 1) * limit;

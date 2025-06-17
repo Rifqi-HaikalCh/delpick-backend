@@ -1,49 +1,64 @@
 'use strict';
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('OrderItems', {
+    await queryInterface.createTable('order_items', {
       id: {
-        allowNull: false,
-        autoIncrement: true,
+        type: Sequelize.INTEGER,
         primaryKey: true,
-        type: Sequelize.INTEGER
+        autoIncrement: true
       },
-      orderId: {
+      order_id: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: 'Orders',
-          key: 'id',
+          model: 'orders',
+          key: 'id'
         },
         onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
+        onDelete: 'CASCADE'
       },
-      name: {
-        type: Sequelize.STRING,
-        allowNull: false,
+      menu_item_id: {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'menu_items',
+          key: 'id'
+        },
+        onUpdate: 'SET NULL',
+        onDelete: 'SET NULL'
       },
       quantity: {
         type: Sequelize.INTEGER,
         allowNull: false,
+        defaultValue: 1
       },
       price: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
+        type: Sequelize.DECIMAL(10, 2),
+        allowNull: false
       },
-      imageUrl: {
-        type: Sequelize.STRING
+      notes: {
+        type: Sequelize.TEXT,
+        allowNull: true
       },
-      createdAt: {
-        allowNull: false,
+      created_at: {
         type: Sequelize.DATE,
-      },
-      updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       },
+      updated_at: {
+        type: Sequelize.DATE,
+        allowNull: false,
+        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
+      }
     });
+
+    // Add indexes
+    await queryInterface.addIndex('order_items', ['order_id']);
+    await queryInterface.addIndex('order_items', ['menu_item_id']);
   },
+
   down: async (queryInterface) => {
-    await queryInterface.dropTable('OrderItems');
-  },
+    await queryInterface.dropTable('order_items');
+  }
 };
