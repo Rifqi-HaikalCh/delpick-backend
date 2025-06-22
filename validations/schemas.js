@@ -40,8 +40,12 @@ const schemas = {
             name: Joi.string().min(3).max(50).messages(messages),
             email: Joi.string().email().messages(messages),
             phone: Joi.string().pattern(/^[0-9]{10,13}$/).messages(messages),
-            avatar: Joi.string().uri().messages(messages)
+            avatar: Joi.string().messages(messages),
+            fcm_token: Joi.string().allow('', null).messages(messages)
         }),
+        updateFcmToken: Joi.object({
+            fcm_token: Joi.string().required().messages(messages)
+        })
     },
 
     store: {
@@ -126,8 +130,8 @@ const schemas = {
             ).min(1).required().messages(messages)
         }),
         update: Joi.object({
-            order_status: Joi.string().valid('pending', 'approved', 'preparing', 'on_delivery', 'delivered').messages(messages),
-            delivery_status: Joi.string().valid('waiting', 'picking_up', 'on_delivery', 'delivered').messages(messages),
+            order_status: Joi.string().valid('pending', 'confirmed', 'preparing', 'ready_for_pickup', 'on_delivery', 'delivered', 'cancelled', 'rejected').messages(messages),
+            delivery_status: Joi.string().valid('pending', 'picked_up', 'on_way', 'delivered').messages(messages),
             driverId: Joi.number().integer().messages(messages),
             tracking_updates: Joi.array().messages(messages)
         }),
@@ -138,6 +142,9 @@ const schemas = {
         review: Joi.object({
             rating: Joi.number().min(1).max(5).required().messages(messages),
             comment: Joi.string().max(500).messages(messages)
+        }),
+        process: Joi.object({
+            action: Joi.string().valid('approve', 'reject').required().messages(messages)
         })
     },
 

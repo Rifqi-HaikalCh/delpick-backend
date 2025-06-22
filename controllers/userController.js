@@ -4,6 +4,7 @@ const { User, Notification } = require('../models');
 const response = require('../utils/response');
 const { saveBase64Image } = require('../utils/imageHelper');
 const { logger } = require('../utils/logger');
+const { validateFcmToken } = require('../utils/notifications');
 
 /**
  * Get user profile
@@ -42,7 +43,8 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
     try {
         logger.info('Update profile request:', { user_id: req.user.id });
-        const { name, email, phone, avatar, address } = req.body;
+        const { name, email, phone, avatar, fcm_token } = req.body;
+
         const user = await User.findByPk(req.user.id);
 
         if (!user) {
@@ -50,15 +52,35 @@ const updateProfile = async (req, res) => {
             return response(res, { statusCode: 404, message: 'User tidak ditemukan' });
         }
 
+        // Check if email is being changed and if it's already taken
+        if (email && email !== user.email) {
+            const existingUser = await User.findOne({ where: { email } });
+            if (existingUser) {
+                return response(res, {
+                    statusCode: 400,
+                    message: 'Email sudah digunakan'
+                });
+            }
+        }
+
         const updateData = {
-            name,
-            email,
-            phone,
-            address
+            ...(name && { name }),
+            ...(email && { email }),
+            ...(phone && { phone }),
+            ...(fcm_token !== undefined && { fcm_token })
         };
 
         if (avatar && avatar.startsWith('data:image')) {
-            updateData.avatar = saveBase64Image(avatar, 'users', 'avatar');
+            try {
+                updateData.avatar = saveBase64Image(avatar, 'users', 'avatar');
+            } catch (error) {
+                logger.error('Avatar save error:', { error: error.message });
+                return response(res, {
+                    statusCode: 400,
+                    message: 'Gagal menyimpan avatar',
+                    errors: error.message
+                });
+            }
         }
 
         await user.update(updateData);
@@ -71,6 +93,16 @@ const updateProfile = async (req, res) => {
         });
     } catch (error) {
         logger.error('Update profile error:', { error: error.message, stack: error.stack });
+
+        // Handle specific validation errors
+        if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeUniqueConstraintError') {
+            return response(res, {
+                statusCode: 400,
+                message: 'Validasi gagal',
+                errors: error.errors.map(e => e.message)
+            });
+        }
+
         return response(res, {
             statusCode: 500,
             message: 'Terjadi kesalahan saat memperbarui profil',
@@ -245,6 +277,51 @@ const deleteNotification = async (req, res) => {
     }
 };
 
+/**
+ * Update FCM token for push notifications
+ */
+const updateFcmToken = async (req, res) => {
+    try {
+        logger.info('Update FCM token request:', { user_id: req.user.id });
+        const { fcm_token } = req.body;
+
+        // Validate FCM token format if provided
+        if (fcm_token && !validateFcmToken(fcm_token)) {
+            logger.warn('Invalid FCM token format:', { user_id: req.user.id });
+            return response(res, {
+                statusCode: 400,
+                message: 'Format FCM token tidak valid'
+            });
+        }
+
+        const user = await User.findByPk(req.user.id);
+
+        if (!user) {
+            logger.warn('User not found:', { user_id: req.user.id });
+            return response(res, { statusCode: 404, message: 'User tidak ditemukan' });
+        }
+
+        await user.update({ fcm_token });
+
+        logger.info('FCM token updated successfully', {
+            user_id: user.id,
+            has_token: !!fcm_token
+        });
+        return response(res, {
+            statusCode: 200,
+            message: 'FCM token berhasil diperbarui',
+            data: { fcm_token }
+        });
+    } catch (error) {
+        logger.error('Update FCM token error:', { error: error.message, stack: error.stack });
+        return response(res, {
+            statusCode: 500,
+            message: 'Terjadi kesalahan saat memperbarui FCM token',
+            errors: error.message
+        });
+    }
+};
+
 module.exports = {
     getProfile,
     updateProfile,
@@ -252,5 +329,6 @@ module.exports = {
     getNotifications,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-    deleteNotification
+    deleteNotification,
+    updateFcmToken
 }; 

@@ -10,7 +10,9 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // Relasi dengan Store
-      MenuItem.belongsTo(models.Store, { foreignKey: 'store_id' });
+      MenuItem.belongsTo(models.Store, { foreignKey: 'store_id', as: 'store' });
+      // Relasi dengan OrderItem
+      MenuItem.hasMany(models.OrderItem, { foreignKey: 'menu_item_id', as: 'orderItems' });
     }
   }
   MenuItem.init({

@@ -11,7 +11,7 @@ module.exports = {
       allowNull: true,
     });
     await queryInterface.addColumn('Drivers', 'status', {
-      type: Sequelize.ENUM('active', 'inactive'),
+      type: Sequelize.ENUM('active', 'inactive', 'busy'),
       defaultValue: 'inactive',
     });
   },

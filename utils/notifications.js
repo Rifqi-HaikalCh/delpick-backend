@@ -153,10 +153,57 @@ const unsubscribeFromTopic = async (tokens, topic) => {
     }
 };
 
+/**
+ * Validate FCM token format
+ * @param {string} token - FCM token to validate
+ * @returns {boolean} - Whether token is valid
+ */
+const validateFcmToken = (token) => {
+    if (!token || typeof token !== 'string') {
+        return false;
+    }
+
+    // Basic FCM token validation - should be a long string with specific characters
+    const fcmTokenPattern = /^[A-Za-z0-9:_-]+$/;
+    return fcmTokenPattern.test(token) && token.length > 50;
+};
+
+/**
+ * Clean up invalid FCM tokens from user records
+ * @param {Object} User - User model
+ * @returns {Promise<number>} - Number of tokens cleaned up
+ */
+const cleanupInvalidFcmTokens = async (User) => {
+    try {
+        const result = await User.update(
+            { fcm_token: null },
+            {
+                where: {
+                    fcm_token: {
+                        [require('sequelize').Op.or]: [
+                            { [require('sequelize').Op.eq]: '' },
+                            { [require('sequelize').Op.like]: '%invalid%' },
+                            { [require('sequelize').Op.like]: '%expired%' }
+                        ]
+                    }
+                }
+            }
+        );
+
+        logger.info(`Cleaned up ${result[0]} invalid FCM tokens`);
+        return result[0];
+    } catch (error) {
+        logger.error('Error cleaning up FCM tokens:', { error: error.message });
+        return 0;
+    }
+};
+
 module.exports = {
     sendNotification,
     sendMulticastNotification,
     sendTopicNotification,
     subscribeToTopic,
-    unsubscribeFromTopic
+    unsubscribeFromTopic,
+    validateFcmToken,
+    cleanupInvalidFcmTokens
 }; 

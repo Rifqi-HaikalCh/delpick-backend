@@ -1,6 +1,35 @@
+'use strict';
+
+// Mock Firebase configuration first
+jest.mock('../../config/firebase', () => ({
+    admin: {
+        messaging: () => ({
+            send: jest.fn(),
+            sendMulticast: jest.fn(),
+            subscribeToTopic: jest.fn(),
+            unsubscribeFromTopic: jest.fn()
+        })
+    }
+}));
+
+// Mock Firebase service account
+jest.mock('../../config/firebase-service-account.json', () => ({}), { virtual: true });
+
+// Mock Redis
+jest.mock('../../config/redis', () => ({
+    connect: jest.fn().mockResolvedValue(),
+    get: jest.fn(),
+    set: jest.fn(),
+    del: jest.fn(),
+    quit: jest.fn()
+}));
+
 const { User } = require('../../models');
 const { ValidationError, NotFoundError } = require('../../utils/errors');
 const userController = require('../../controllers/userController');
+const request = require('supertest');
+const app = require('../../app');
+const jwt = require('jsonwebtoken');
 
 // Mock User model
 jest.mock('../../models', () => ({
@@ -10,6 +39,19 @@ jest.mock('../../models', () => ({
         findOne: jest.fn(),
         update: jest.fn(),
         destroy: jest.fn()
+    },
+    Notification: {
+        findOne: jest.fn(),
+        update: jest.fn()
+    }
+}));
+
+// Mock logger
+jest.mock('../../utils/logger', () => ({
+    logger: {
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn()
     }
 }));
 
@@ -151,6 +193,124 @@ describe('User Controller', () => {
             await userController.updateProfile(mockReq, mockRes, mockNext);
 
             expect(mockNext).toHaveBeenCalledWith(expect.any(ValidationError));
+        });
+    });
+});
+
+describe('User Controller - FCM Token', () => {
+    let mockUser;
+    let authToken;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+
+        mockUser = {
+            id: 1,
+            name: 'Test User',
+            email: 'test@example.com',
+            role: 'customer',
+            fcm_token: null,
+            update: jest.fn()
+        };
+
+        // Generate a test token
+        authToken = jwt.sign(
+            { id: mockUser.id, role: mockUser.role },
+            process.env.JWT_SECRET || 'test-secret',
+            { expiresIn: '1h' }
+        );
+    });
+
+    describe('PUT /api/v1/users/fcm-token', () => {
+        test('should update FCM token successfully', async () => {
+            const fcmToken = 'test-fcm-token-123';
+
+            User.findByPk.mockResolvedValue(mockUser);
+            mockUser.update.mockResolvedValue({ ...mockUser, fcm_token: fcmToken });
+
+            const response = await request(app)
+                .put('/api/v1/users/fcm-token')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send({ fcm_token: fcmToken });
+
+            expect(response.status).toBe(200);
+            expect(response.body.success).toBe(true);
+            expect(response.body.message).toBe('FCM token berhasil diperbarui');
+            expect(response.body.data.fcm_token).toBe(fcmToken);
+            expect(mockUser.update).toHaveBeenCalledWith({ fcm_token: fcmToken });
+        });
+
+        test('should return 400 for missing FCM token', async () => {
+            const response = await request(app)
+                .put('/api/v1/users/fcm-token')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send({});
+
+            expect(response.status).toBe(400);
+        });
+
+        test('should return 404 if user not found', async () => {
+            User.findByPk.mockResolvedValue(null);
+
+            const response = await request(app)
+                .put('/api/v1/users/fcm-token')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send({ fcm_token: 'test-token' });
+
+            expect(response.status).toBe(404);
+            expect(response.body.message).toBe('User tidak ditemukan');
+        });
+
+        test('should return 401 without authentication', async () => {
+            const response = await request(app)
+                .put('/api/v1/users/fcm-token')
+                .send({ fcm_token: 'test-token' });
+
+            expect(response.status).toBe(401);
+        });
+    });
+
+    describe('PUT /api/v1/users/profile (with FCM token)', () => {
+        test('should update profile including FCM token', async () => {
+            const updateData = {
+                name: 'Updated Name',
+                fcm_token: 'updated-fcm-token'
+            };
+
+            User.findByPk.mockResolvedValue(mockUser);
+            mockUser.update.mockResolvedValue({ ...mockUser, ...updateData });
+
+            const response = await request(app)
+                .put('/api/v1/users/profile')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send(updateData);
+
+            expect(response.status).toBe(200);
+            expect(mockUser.update).toHaveBeenCalledWith({
+                name: updateData.name,
+                fcm_token: updateData.fcm_token
+            });
+        });
+
+        test('should handle empty FCM token (remove token)', async () => {
+            const updateData = {
+                name: 'Updated Name',
+                fcm_token: ''
+            };
+
+            User.findByPk.mockResolvedValue(mockUser);
+            mockUser.update.mockResolvedValue({ ...mockUser, ...updateData });
+
+            const response = await request(app)
+                .put('/api/v1/users/profile')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send(updateData);
+
+            expect(response.status).toBe(200);
+            expect(mockUser.update).toHaveBeenCalledWith({
+                name: updateData.name,
+                fcm_token: updateData.fcm_token
+            });
         });
     });
 }); 

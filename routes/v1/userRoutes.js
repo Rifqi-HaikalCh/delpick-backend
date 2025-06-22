@@ -11,7 +11,8 @@ const {
     deleteProfile,
     getNotifications,
     markNotificationAsRead,
-    deleteNotification
+    deleteNotification,
+    updateFcmToken
 } = require('../../controllers/userController');
 const { requestLogger } = require('../../middleware/requestMiddleware');
 
@@ -62,6 +63,36 @@ router.use(requestLogger);
 router.get('/profile', protect, getProfile);
 router.put('/profile', protect, validate(schemas.user.update), updateProfile);
 router.delete('/profile', protect, deleteProfile);
+
+/**
+ * @swagger
+ * /users/fcm-token:
+ *   put:
+ *     summary: Update FCM token for push notifications
+ *     tags: [User]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fcm_token:
+ *                 type: string
+ *                 description: Firebase Cloud Messaging token
+ *     responses:
+ *       200:
+ *         description: FCM token updated successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.put('/fcm-token', protect, validate(schemas.user.updateFcmToken), updateFcmToken);
 
 /**
  * @swagger

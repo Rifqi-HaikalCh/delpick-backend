@@ -43,7 +43,7 @@ const login = async (req, res) => {
                 },
                 {
                     model: Store,
-                    as: 'store',
+                    as: 'owner',
                     required: false,
                     attributes: { exclude: ['created_at', 'updated_at'] }
                 }
@@ -63,8 +63,8 @@ const login = async (req, res) => {
 
         if (user.role === 'driver' && user.driver) {
             responseData.driver = user.driver;
-        } else if (user.role === 'store' && user.store) {
-            responseData.store = user.store;
+        } else if (user.role === 'store' && user.owner) {
+            responseData.store = user.owner;
         }
 
         logger.info('Login successful', { userId: user.id, role: user.role });
@@ -162,7 +162,7 @@ const getProfile = async (req, res) => {
                 },
                 {
                     model: Store,
-                    as: 'store',
+                    as: 'owner',
                     required: false,
                     attributes: { exclude: ['created_at', 'updated_at'] }
                 }

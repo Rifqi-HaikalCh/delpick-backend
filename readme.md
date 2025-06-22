@@ -174,6 +174,10 @@ Berikut adalah daftar endpoint utama:
 - `PUT /tracking/driver-requests/{orderId}/accept` - Driver menyetujui permintaan pengantaran.
 - `GET /tracking/{orderId}` - Mendapatkan data tracking secara realtime.
 
+### **Push Notifications (FCM)**
+- `PUT /api/v1/users/fcm-token` - Update FCM token.
+- `PUT /api/v1/users/profile` - Update profile (termasuk FCM token).
+
 ---
 
 ## **Struktur Folder**
@@ -201,3 +205,74 @@ del-pick-api/
 ## **Lisensi**
 
 Proyek ini dilisensikan di bawah [MIT License](LICENSE).
+
+## **FCM Token Management**
+
+Aplikasi ini mendukung Firebase Cloud Messaging (FCM) untuk push notifications. Setiap user dapat menyimpan FCM token untuk menerima notifikasi real-time.
+
+### **FCM Token Endpoints**
+
+#### **Update FCM Token**
+```http
+PUT /api/v1/users/fcm-token
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "fcm_token": "your-fcm-token-here"
+}
+```
+
+#### **Update Profile (termasuk FCM Token)**
+```http
+PUT /api/v1/users/profile
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+    "name": "User Name",
+    "email": "user@example.com",
+    "phone": "08123456789",
+    "fcm_token": "your-fcm-token-here"
+}
+```
+
+### **FCM Token Features**
+
+1. **Token Validation**: Sistem memvalidasi format FCM token sebelum menyimpan
+2. **Token Cleanup**: Fungsi untuk membersihkan token yang tidak valid atau expired
+3. **Automatic Notifications**: Sistem secara otomatis mengirim notifikasi untuk:
+   - Order status updates
+   - Driver request notifications
+   - Delivery completion
+   - Order cancellations
+
+### **Notification Types**
+
+- **Order Notifications**: Dikirim ke customer saat status order berubah
+- **Driver Notifications**: Dikirim ke driver saat ada request baru atau order dibatalkan
+- **Store Notifications**: Dikirim ke store owner untuk update order
+
+### **Usage Example**
+
+```javascript
+// Update FCM token after user login
+const updateFcmToken = async (token) => {
+    try {
+        const response = await fetch('/api/v1/users/fcm-token', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${userToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fcm_token: token })
+        });
+        
+        if (response.ok) {
+            console.log('FCM token updated successfully');
+        }
+    } catch (error) {
+        console.error('Failed to update FCM token:', error);
+    }
+};
+```

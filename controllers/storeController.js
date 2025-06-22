@@ -183,7 +183,7 @@ const updateStore = async (req, res) => {
         } = req.body;
 
         const store = await Store.findByPk(req.params.id, {
-            include: [{ model: User, as: 'user' }],
+            include: [{ model: User, as: 'owner' }],
             transaction
         });
 
@@ -197,7 +197,7 @@ const updateStore = async (req, res) => {
         }
 
         // Update user data
-        await store.user.update({
+        await store.owner.update({
             name,
             email,
             phone
@@ -228,7 +228,7 @@ const updateStore = async (req, res) => {
             statusCode: 200,
             message: 'Store berhasil diperbarui',
             data: {
-                user: store.user,
+                user: store.owner,
                 store
             }
         });
@@ -253,7 +253,7 @@ const deleteStore = async (req, res) => {
         logger.info('Delete store request:', { storeId: req.params.id });
 
         const store = await Store.findByPk(req.params.id, {
-            include: [{ model: User, as: 'user' }],
+            include: [{ model: User, as: 'owner' }],
             transaction
         });
 
@@ -269,7 +269,7 @@ const deleteStore = async (req, res) => {
         // Delete store profile first
         await store.destroy({ transaction });
         // Then delete user account
-        await store.user.destroy({ transaction });
+        await store.owner.destroy({ transaction });
 
         await transaction.commit();
 

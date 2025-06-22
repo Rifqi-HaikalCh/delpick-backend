@@ -11,7 +11,7 @@ const { logger } = require('../utils/logger');
 const getStoreByUserId = async (userId) => {
     const store = await Store.findOne({
         where: { user_id: userId },
-        include: [{ model: User, as: 'user' }]
+        include: [{ model: User, as: 'owner' }]
     });
     return store;
 };

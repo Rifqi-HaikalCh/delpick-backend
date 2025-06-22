@@ -11,7 +11,8 @@ const {
     updateOrderStatus,
     getOrdersByUser,
     getOrdersByStore,
-    createReview
+    createReview,
+    processOrderByStore
 } = require('../../controllers/orderController');
 const trackingController = require('../../controllers/trackingController');
 const { trackingLimiter } = require('../../middleware/rateLimiter');
@@ -61,6 +62,34 @@ router.post('/', protect, restrictTo('customer'), validate(schemas.order.create)
 
 /**
  * @swagger
+ * /orders/customer:
+ *   get:
+ *     summary: Get orders for current customer
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of customer orders
+ */
+router.get('/customer', protect, restrictTo('customer'), cache.middleware(), getOrdersByUser);
+
+/**
+ * @swagger
+ * /orders/store:
+ *   get:
+ *     summary: Get orders for current store
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of store orders
+ */
+router.get('/store', protect, restrictTo('store'), cache.middleware(), getOrdersByStore);
+
+/**
+ * @swagger
  * /orders/{id}:
  *   get:
  *     summary: Get order by ID
@@ -78,34 +107,6 @@ router.post('/', protect, restrictTo('customer'), validate(schemas.order.create)
  *         description: Order detail
  */
 router.get('/:id', protect, cache.middleware(), getOrderById);
-
-/**
- * @swagger
- * /orders/customer/orders:
- *   get:
- *     summary: Get orders for current customer
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of customer orders
- */
-router.get('/customer/orders', protect, restrictTo('customer'), cache.middleware(), getOrdersByUser);
-
-/**
- * @swagger
- * /orders/store/orders:
- *   get:
- *     summary: Get orders for current store
- *     tags: [Orders]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of store orders
- */
-router.get('/store/orders', protect, restrictTo('store'), cache.middleware(), getOrdersByStore);
 
 /**
  * @swagger
@@ -137,6 +138,51 @@ router.get('/store/orders', protect, restrictTo('store'), cache.middleware(), ge
  *         description: Status updated
  */
 router.patch('/:id/status', protect, restrictTo('store'), updateOrderStatus);
+
+/**
+ * @swagger
+ * /orders/{id}/process:
+ *   post:
+ *     summary: Process order by store (approve or reject)
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [action]
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [approve, reject]
+ *                 description: Action to take on the order
+ *     responses:
+ *       200:
+ *         description: Order processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid action or order state
+ *       404:
+ *         description: Order not found
+ */
+router.post('/:id/process', protect, restrictTo('store'), validate(schemas.order.process), processOrderByStore);
 
 /**
  * @swagger

@@ -581,9 +581,9 @@ const processOrderByStore = async (req, res) => {
                 await transaction.commit();
 
                 // Kirim notifikasi ke store jika ada fcm_token
-                if (order.store && order.store.user && order.store.user.fcm_token) {
+                if (order.store && order.store.owner && order.store.owner.fcm_token) {
                     await sendNotification(
-                        order.store.user.fcm_token,
+                        order.store.owner.fcm_token,
                         'Order Baru Masuk',
                         'Ada pesanan baru yang perlu diproses.',
                         { order_id: order.id }
@@ -596,10 +596,42 @@ const processOrderByStore = async (req, res) => {
                     data: order,
                 });
             } else { // action === 'reject'
+                // Cek apakah ada driver yang sudah accept order ini
+                const acceptedDriverRequest = await DriverRequest.findOne({
+                    where: {
+                        order_id: order.id,
+                        status: 'accepted'
+                    },
+                    include: [{
+                        model: Driver,
+                        as: 'driver',
+                        include: [{
+                            model: User,
+                            as: 'user',
+                            attributes: ['id', 'name', 'fcm_token']
+                        }]
+                    }],
+                    transaction
+                });
+
                 await order.update({
-                    order_status: 'cancelled',
+                    order_status: 'rejected',
                     cancellation_reason: 'Ditolak oleh toko'
                 }, { transaction });
+
+                // Jika ada driver yang sudah accept, kembalikan status driver ke active
+                // dan update status driver request menjadi cancelled
+                if (acceptedDriverRequest) {
+                    await acceptedDriverRequest.driver.update({
+                        status: 'active'
+                    }, { transaction });
+
+                    await acceptedDriverRequest.update({
+                        status: 'rejected'
+                    }, { transaction });
+
+                    logger.info(`Driver ${acceptedDriverRequest.driver_id} status dikembalikan ke active karena order ${order.id} ditolak oleh toko`);
+                }
 
                 await transaction.commit();
 
@@ -610,6 +642,16 @@ const processOrderByStore = async (req, res) => {
                         customer.fcm_token,
                         'Order Ditolak',
                         'Pesanan Anda ditolak oleh toko.',
+                        { order_id: order.id }
+                    );
+                }
+
+                // Kirim notifikasi ke driver jika ada driver yang sudah accept
+                if (acceptedDriverRequest && acceptedDriverRequest.driver && acceptedDriverRequest.driver.user && acceptedDriverRequest.driver.user.fcm_token) {
+                    await sendNotification(
+                        acceptedDriverRequest.driver.user.fcm_token,
+                        'Order Dibatalkan',
+                        'Pesanan yang Anda terima telah dibatalkan oleh toko.',
                         { order_id: order.id }
                     );
                 }
@@ -682,8 +724,9 @@ const updateOrderStatus = async (req, res) => {
             updateData.actual_delivery_time = new Date();
         }
 
-        // If order is cancelled, return items to inventory
-        if (order_status === 'cancelled' && order.order_status !== 'cancelled') {
+        // If order is cancelled or rejected, return items to inventory and handle driver
+        if ((order_status === 'cancelled' || order_status === 'rejected') && order.order_status !== 'cancelled' && order.order_status !== 'rejected') {
+            // Return items to inventory
             for (const orderItem of order.items) {
                 const menuItem = await MenuItem.findOne({
                     where: {
@@ -697,6 +740,47 @@ const updateOrderStatus = async (req, res) => {
                     await menuItem.update({
                         quantity: menuItem.quantity + orderItem.quantity
                     }, { transaction });
+                }
+            }
+
+            // Check if there's a driver who already accepted this order
+            const acceptedDriverRequest = await DriverRequest.findOne({
+                where: {
+                    order_id: order.id,
+                    status: 'accepted'
+                },
+                include: [{
+                    model: Driver,
+                    as: 'driver',
+                    include: [{
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'name', 'fcm_token']
+                    }]
+                }],
+                transaction
+            });
+
+            // If there's an accepted driver, reset driver status and cancel driver request
+            if (acceptedDriverRequest) {
+                await acceptedDriverRequest.driver.update({
+                    status: 'active'
+                }, { transaction });
+
+                await acceptedDriverRequest.update({
+                    status: 'rejected'
+                }, { transaction });
+
+                logger.info(`Driver ${acceptedDriverRequest.driver_id} status dikembalikan ke active karena order ${order.id} dibatalkan`);
+
+                // Send notification to driver
+                if (acceptedDriverRequest.driver && acceptedDriverRequest.driver.user && acceptedDriverRequest.driver.user.fcm_token) {
+                    await sendNotification(
+                        acceptedDriverRequest.driver.user.fcm_token,
+                        'Order Dibatalkan',
+                        'Pesanan yang Anda terima telah dibatalkan.',
+                        { order_id: order.id }
+                    );
                 }
             }
         }
@@ -728,6 +812,10 @@ const updateOrderStatus = async (req, res) => {
                 case 'cancelled':
                     notificationTitle = 'Pesanan Dibatalkan';
                     notificationBody = 'Pesanan Anda telah dibatalkan.';
+                    break;
+                case 'rejected':
+                    notificationTitle = 'Pesanan Ditolak';
+                    notificationBody = 'Pesanan Anda ditolak oleh toko.';
                     break;
             }
 
@@ -764,16 +852,88 @@ const updateOrderStatus = async (req, res) => {
  * Cancel order.
  */
 const cancelOrderRequest = async (req, res) => {
+    let transaction;
     try {
+        transaction = await sequelize.transaction();
         const { id } = req.params;
 
-        const order = await Order.findByPk(id);
+        const order = await Order.findByPk(id, {
+            include: [
+                { model: OrderItem, as: 'items' }
+            ],
+            transaction
+        });
+
         if (!order) {
+            await transaction.rollback();
             return response(res, { statusCode: 404, message: 'Order tidak ditemukan' });
         }
 
-        await order.update({ order_status: 'cancelled' });  // Update status order menjadi 'cancelled'
+        // Return items to inventory if order is being cancelled
+        if (order.order_status !== 'cancelled' && order.order_status !== 'rejected') {
+            for (const orderItem of order.items) {
+                const menuItem = await MenuItem.findOne({
+                    where: {
+                        store_id: order.store_id,
+                        name: orderItem.name
+                    },
+                    transaction
+                });
 
+                if (menuItem) {
+                    await menuItem.update({
+                        quantity: menuItem.quantity + orderItem.quantity
+                    }, { transaction });
+                }
+            }
+
+            // Check if there's a driver who already accepted this order
+            const acceptedDriverRequest = await DriverRequest.findOne({
+                where: {
+                    order_id: order.id,
+                    status: 'accepted'
+                },
+                include: [{
+                    model: Driver,
+                    as: 'driver',
+                    include: [{
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'name', 'fcm_token']
+                    }]
+                }],
+                transaction
+            });
+
+            // If there's an accepted driver, reset driver status and cancel driver request
+            if (acceptedDriverRequest) {
+                await acceptedDriverRequest.driver.update({
+                    status: 'active'
+                }, { transaction });
+
+                await acceptedDriverRequest.update({
+                    status: 'rejected'
+                }, { transaction });
+
+                logger.info(`Driver ${acceptedDriverRequest.driver_id} status dikembalikan ke active karena order ${order.id} dibatalkan`);
+
+                // Send notification to driver
+                if (acceptedDriverRequest.driver && acceptedDriverRequest.driver.user && acceptedDriverRequest.driver.user.fcm_token) {
+                    await sendNotification(
+                        acceptedDriverRequest.driver.user.fcm_token,
+                        'Order Dibatalkan',
+                        'Pesanan yang Anda terima telah dibatalkan.',
+                        { order_id: order.id }
+                    );
+                }
+            }
+        }
+
+        await order.update({ order_status: 'cancelled' }, { transaction });
+
+        await transaction.commit();
+
+        logger.info('Order cancelled successfully:', { order_id: order.id });
         return response(res, {
             statusCode: 200,
             message: 'Order berhasil dibatalkan',
@@ -781,6 +941,8 @@ const cancelOrderRequest = async (req, res) => {
         });
 
     } catch (error) {
+        if (transaction) await transaction.rollback();
+        logger.error('Error cancelling order:', { error: error.message, stack: error.stack });
         return response(res, {
             statusCode: 500,
             message: 'Terjadi kesalahan saat membatalkan order',
@@ -903,7 +1065,7 @@ const getOrderById = async (req, res) => {
         const order = await Order.findByPk(req.params.id, {
             include: [
                 { model: User, as: 'customer', attributes: ['id', 'name', 'phone'] },
-                { model: Store, as: 'store', include: [{ model: User, as: 'user', attributes: ['id', 'name'] }] },
+                { model: Store, as: 'store', include: [{ model: User, as: 'owner', attributes: ['id', 'name'] }] },
                 { model: Driver, as: 'driver', include: [{ model: User, as: 'user', attributes: ['id', 'name'] }] },
                 { model: OrderItem, as: 'items', include: [{ model: MenuItem, as: 'menuItem' }] }
             ]

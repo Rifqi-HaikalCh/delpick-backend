@@ -10,10 +10,10 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // Relasi dengan User
-      Store.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
+      Store.belongsTo(models.User, { foreignKey: 'user_id', as: 'owner' });
 
       // Relasi dengan MenuItems
-      Store.hasMany(models.MenuItem, { foreignKey: 'store_id' });
+      Store.hasMany(models.MenuItem, { foreignKey: 'store_id', as: 'menu_items' });
     }
   }
   Store.init({

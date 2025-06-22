@@ -104,12 +104,12 @@ const getDriverRequestDetail = async (req, res) => {
                         {
                             model: User,
                             as: 'customer',
-                            attributes: ['id', 'name', 'phone', 'address']
+                            attributes: ['id', 'name', 'phone']
                         },
                         {
                             model: Store,
                             as: 'store',
-                            attributes: ['id', 'name', 'address', 'phone']
+                            attributes: ['id', 'name', 'phone']
                         },
                         {
                             model: OrderItem,
